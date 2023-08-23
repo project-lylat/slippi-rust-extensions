@@ -87,7 +87,7 @@ pub extern "C" fn slprs_exi_device_dma_read(exi_device_instance_ptr: usize, addr
 ///
 /// The reporter will manage the actual... reporting.
 #[no_mangle]
-pub extern "C" fn slprs_exi_device_log_game_report(instance_ptr: usize, game_report_instance_ptr: usize) {
+pub extern "C" fn slprs_exi_device_log_game_report(instance_ptr: usize, game_report_instance_ptr: usize, url: *const c_char) {
     // Coerce the instances from the pointers. This is theoretically safe since we control
     // the C++ side and can guarantee that the pointers are only owned
     // by us, and are created/destroyed with the corresponding lifetimes.
@@ -97,8 +97,10 @@ pub extern "C" fn slprs_exi_device_log_game_report(instance_ptr: usize, game_rep
             Box::from_raw(game_report_instance_ptr as *mut GameReport),
         )
     };
+    let fn_name = "slprs_exi_device_log_game_report";
+    let url = c_str_to_string(url, fn_name, "url");
 
-    device.game_reporter.log_report(*game_report);
+    device.game_reporter.log_report(*game_report, url);
 
     // Fall back into a raw pointer so Rust doesn't obliterate the object.
     let _leak = Box::into_raw(device);
@@ -127,6 +129,7 @@ pub extern "C" fn slprs_exi_device_report_match_completion(
     play_key: *const c_char,
     match_id: *const c_char,
     end_mode: u8,
+    url: *const c_char,
 ) {
     // Coerce the instances from the pointers. This is theoretically safe since we control
     // the C++ side and can guarantee that the pointers are only owned
@@ -137,8 +140,9 @@ pub extern "C" fn slprs_exi_device_report_match_completion(
     let uid = c_str_to_string(uid, fn_name, "uid");
     let play_key = c_str_to_string(play_key, fn_name, "play_key");
     let match_id = c_str_to_string(match_id, fn_name, "match_id");
+    let url = c_str_to_string(url, fn_name, "url");
 
-    device.game_reporter.report_completion(uid, play_key, match_id, end_mode);
+    device.game_reporter.report_completion(uid, play_key, match_id, end_mode, url);
 
     // Fall back into a raw pointer so Rust doesn't obliterate the object.
     let _leak = Box::into_raw(device);
@@ -152,6 +156,7 @@ pub extern "C" fn slprs_exi_device_report_match_abandonment(
     uid: *const c_char,
     play_key: *const c_char,
     match_id: *const c_char,
+    url: *const c_char,
 ) {
     // Coerce the instances from the pointers. This is theoretically safe since we control
     // the C++ side and can guarantee that the pointers are only owned
@@ -162,8 +167,9 @@ pub extern "C" fn slprs_exi_device_report_match_abandonment(
     let uid = c_str_to_string(uid, fn_name, "uid");
     let play_key = c_str_to_string(play_key, fn_name, "play_key");
     let match_id = c_str_to_string(match_id, fn_name, "match_id");
+    let url = c_str_to_string(url, fn_name, "url");
 
-    device.game_reporter.report_abandonment(uid, play_key, match_id);
+    device.game_reporter.report_abandonment(uid, play_key, match_id, url);
 
     // Fall back into a raw pointer so Rust doesn't obliterate the object.
     let _leak = Box::into_raw(device);

@@ -17,8 +17,6 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use std::io::Write;
 
-const GRAPHQL_URL: &str = "https://gql-gateway-dev-dot-slippi.uc.r.appspot.com/graphql";
-
 /// How many times a report should attempt to send.
 const MAX_REPORT_ATTEMPTS: i32 = 5;
 
@@ -68,12 +66,12 @@ impl GameReporterQueue {
         match self.inner.lock() {
             Ok(mut lock) => {
                 (*lock).push_back(report);
-            },
+            }
 
             Err(error) => {
                 // This should never happen.
                 tracing::error!(target: Log::GameReporter, ?error, "Unable to lock queue, dropping report");
-            },
+            }
         }
     }
 
@@ -81,7 +79,7 @@ impl GameReporterQueue {
     ///
     /// This doesn't necessarily need to be here, but it's easier to grok the codebase
     /// if we keep all reporting network calls in one module.
-    pub fn report_abandonment(&self, uid: String, play_key: String, match_id: String) {
+    pub fn report_abandonment(&self, uid: String, play_key: String, match_id: String, url: String) {
         let mutation = r#"
             mutation ($report: OnlineGameAbandonInput!) {
                 abandonOnlineGame (report: $report)
@@ -96,12 +94,12 @@ impl GameReporterQueue {
             }
         }));
 
-        let res = execute_graphql_query(&self.http_client, mutation, variables, Some("abandonOnlineGame"));
+        let res = execute_graphql_query(url, &self.http_client, mutation, variables, Some("abandonOnlineGame"));
 
         match res {
             Ok(value) if value == "true" => {
                 tracing::info!(target: Log::GameReporter, "Successfully executed abandonment request")
-            },
+            }
             Ok(value) => tracing::error!(target: Log::GameReporter, ?value, "Error executing abandonment request",),
             Err(error) => tracing::error!(target: Log::GameReporter, ?error, "Error executing abandonment request"),
         }
@@ -113,18 +111,19 @@ pub(crate) fn run_completion(http_client: ureq::Agent, receiver: Receiver<Comple
         // Watch for notification to do work
         match receiver.recv() {
             Ok(CompletionEvent::ReportAvailable {
-                uid,
-                play_key,
-                match_id,
-                end_mode,
-            }) => {
-                report_completion(&http_client, uid, match_id, play_key, end_mode);
-            },
+                   uid,
+                   play_key,
+                   match_id,
+                   end_mode,
+                   url,
+               }) => {
+                report_completion(&http_client, uid, match_id, play_key, end_mode, url);
+            }
 
             Ok(CompletionEvent::Shutdown) => {
                 tracing::info!(target: Log::GameReporter, "Completion thread winding down");
                 break;
-            },
+            }
 
             // This should realistically never happen, since it means the Sender
             // that's held a level up has been dropped entirely - but we'll log
@@ -137,7 +136,7 @@ pub(crate) fn run_completion(http_client: ureq::Agent, receiver: Receiver<Comple
                 );
 
                 break;
-            },
+            }
         }
     }
 }
@@ -146,7 +145,7 @@ pub(crate) fn run_completion(http_client: ureq::Agent, receiver: Receiver<Comple
 ///
 /// This doesn't necessarily need to be here, but it's easier to grok the codebase
 /// if we keep all reporting network calls in one module.
-pub fn report_completion(http_client: &ureq::Agent, uid: String, match_id: String, play_key: String, end_mode: u8) {
+pub fn report_completion(http_client: &ureq::Agent, uid: String, match_id: String, play_key: String, end_mode: u8, url: String) {
     let mutation = r#"
         mutation ($report: OnlineGameCompleteInput!) {
             completeOnlineGame (report: $report)
@@ -162,12 +161,12 @@ pub fn report_completion(http_client: &ureq::Agent, uid: String, match_id: Strin
         }
     }));
 
-    let res = execute_graphql_query(http_client, mutation, variables, Some("completeOnlineGame"));
+    let res = execute_graphql_query(url, http_client, mutation, variables, Some("completeOnlineGame"));
 
     match res {
         Ok(value) if value == "true" => {
             tracing::info!(target: Log::GameReporter, "Successfully executed completion request")
-        },
+        }
         Ok(value) => tracing::error!(target: Log::GameReporter, ?value, "Error executing completion request",),
         Err(error) => tracing::error!(target: Log::GameReporter, ?error, "Error executing completion request"),
     }
@@ -176,11 +175,17 @@ pub fn report_completion(http_client: &ureq::Agent, uid: String, match_id: Strin
 /// The main loop that processes reports.
 pub(crate) fn run(reporter: GameReporterQueue, receiver: Receiver<ProcessingEvent>) {
     loop {
+
         // Watch for notification to do work
         match receiver.recv() {
-            Ok(ProcessingEvent::ReportAvailable) => {
-                process_reports(&reporter, ProcessingEvent::ReportAvailable);
-            },
+            Ok(ProcessingEvent::ReportAvailable {
+                   url
+               }) => {
+                let event = ProcessingEvent::ReportAvailable {
+                    url,
+                };
+                process_reports(&reporter, event);
+            }
 
             Ok(ProcessingEvent::Shutdown) => {
                 tracing::info!(target: Log::GameReporter, "Processing thread winding down");
@@ -188,7 +193,7 @@ pub(crate) fn run(reporter: GameReporterQueue, receiver: Receiver<ProcessingEven
                 process_reports(&reporter, ProcessingEvent::Shutdown);
 
                 break;
-            },
+            }
 
             // This should realistically never happen, since it means the Sender
             // that's held a level up has been dropped entirely - but we'll log
@@ -201,7 +206,7 @@ pub(crate) fn run(reporter: GameReporterQueue, receiver: Receiver<ProcessingEven
                 );
 
                 break;
-            },
+            }
         }
     }
 }
@@ -224,7 +229,7 @@ fn process_reports(queue: &GameReporterQueue, event: ProcessingEvent) {
         // (e.g, max attempts). We pass the locked queue over to work with the borrow checker
         // here, since otherwise we can't pop without some ugly block work to coerce letting
         // a mutable borrow drop.
-        match try_send_next_report(&mut *report_queue, event, &queue.http_client, &iso_hash) {
+        match try_send_next_report(&mut *report_queue, &event, &queue.http_client, &iso_hash) {
             Ok(upload_url) => {
                 // Pop the front of the queue. If we have a URL, chuck it all over
                 // to the replay uploader.
@@ -237,7 +242,7 @@ fn process_reports(queue: &GameReporterQueue, event: ProcessingEvent) {
                 }
 
                 thread::sleep(Duration::ZERO)
-            },
+            }
 
             Err(error) => {
                 tracing::error!(
@@ -264,7 +269,7 @@ fn process_reports(queue: &GameReporterQueue, event: ProcessingEvent) {
                 }
 
                 thread::sleep(error.sleep_ms)
-            },
+            }
         }
     }
 }
@@ -292,7 +297,7 @@ struct ReportSendError {
 /// passed to the upload call for processing.
 fn try_send_next_report(
     queue: &mut VecDeque<GameReport>,
-    event: ProcessingEvent,
+    event: &ProcessingEvent,
     http_client: &ureq::Agent,
     iso_hash: &str,
 ) -> Result<Option<String>, ReportSendError> {
@@ -328,34 +333,50 @@ fn try_send_next_report(
         "report": payload,
     }));
 
-    // Call execute_graphql_query and get the response body as a String.
-    let response_body =
-        execute_graphql_query(http_client, mutation, variables, Some("reportOnlineGame")).map_err(|e| ReportSendError {
-            is_last_attempt,
-            sleep_ms: error_sleep_ms,
-            kind: e,
-        })?;
 
-    // Now, parse the response JSON to get the data you need.
-    let response: ReportResponse = serde_json::from_str(&response_body).map_err(|e| ReportSendError {
-        is_last_attempt,
-        sleep_ms: error_sleep_ms,
-        kind: ReportSendErrorKind::JSON(e),
-    })?;
+    match event {
+        ProcessingEvent::ReportAvailable {
+            url
+        } => {
 
-    if !response.success {
-        return Err(ReportSendError {
-            is_last_attempt,
-            sleep_ms: error_sleep_ms,
-            kind: ReportSendErrorKind::NotSuccessful(response_body),
-        });
+            // Call execute_graphql_query and get the response body as a String.
+            let response_body =
+                execute_graphql_query(url.to_string(), http_client, mutation, variables, Some("reportOnlineGame")).map_err(|e| ReportSendError {
+                    is_last_attempt,
+                    sleep_ms: error_sleep_ms,
+                    kind: e,
+                })?;
+
+            // Now, parse the response JSON to get the data you need.
+            let response: ReportResponse = serde_json::from_str(&response_body).map_err(|e| ReportSendError {
+                is_last_attempt,
+                sleep_ms: error_sleep_ms,
+                kind: ReportSendErrorKind::JSON(e),
+            })?;
+
+            if !response.success {
+                return Err(ReportSendError {
+                    is_last_attempt,
+                    sleep_ms: error_sleep_ms,
+                    kind: ReportSendErrorKind::NotSuccessful(response_body),
+                });
+            }
+
+            Ok(response.upload_url)
+        }
+        _ => {
+            return Err(ReportSendError {
+                is_last_attempt: true,
+                sleep_ms: error_sleep_ms,
+                kind: ReportSendErrorKind::NotSuccessful("Event not matched!".to_string()),
+            });
+        }
     }
-
-    Ok(response.upload_url)
 }
 
 /// Prepares and executes a GraphQL query.
 fn execute_graphql_query(
+    url: String,
     http_client: &ureq::Agent,
     query: &str,
     variables: Option<Value>,
@@ -374,7 +395,7 @@ fn execute_graphql_query(
 
     // Make the GraphQL request
     let response = http_client
-        .post(GRAPHQL_URL)
+        .post(url.as_str())
         .send_json(&request_body)
         .map_err(ReportSendErrorKind::Net)?;
 
@@ -435,7 +456,7 @@ fn try_upload_replay_data(data: Vec<u8>, upload_url: String, http_client: &ureq:
         Err(error) => {
             tracing::error!(target: Log::GameReporter, ?error, "Failed to compress replay");
             return;
-        },
+        }
     };
 
     gzipped_data.resize(res_size, 0);

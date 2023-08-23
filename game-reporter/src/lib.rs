@@ -16,9 +16,11 @@ mod types;
 pub use types::{GameReport, OnlinePlayMode, PlayerReport};
 
 /// Events that we dispatch into the processing thread.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum ProcessingEvent {
-    ReportAvailable,
+    ReportAvailable {
+        url: String,
+    },
     Shutdown,
 }
 
@@ -30,6 +32,7 @@ pub(crate) enum CompletionEvent {
         play_key: String,
         match_id: String,
         end_mode: u8,
+        url: String,
     },
 
     Shutdown,
@@ -124,11 +127,15 @@ impl SlippiGameReporter {
     /// Note that when a new report is added, we transfer ownership of all current replay data
     /// to the game report itself. By doing this, we avoid needing to have a Mutex controlling
     /// access and pushing replay data as it comes in requires no locking.
-    pub fn log_report(&mut self, mut report: GameReport) {
+    pub fn log_report(&mut self, mut report: GameReport, url: String) {
         report.replay_data = std::mem::replace(&mut self.replay_data, Vec::new());
         self.queue.add_report(report);
 
-        if let Err(e) = self.queue_thread_notifier.send(ProcessingEvent::ReportAvailable) {
+        let event = ProcessingEvent::ReportAvailable {
+            url,
+        };
+
+        if let Err(e) = self.queue_thread_notifier.send(event) {
             tracing::error!(
                 target: Log::GameReporter,
                 error = ?e,
@@ -138,12 +145,13 @@ impl SlippiGameReporter {
     }
 
     /// Dispatches a completion report to a background processing thread.
-    pub fn report_completion(&self, uid: String, play_key: String, match_id: String, end_mode: u8) {
+    pub fn report_completion(&self, uid: String, play_key: String, match_id: String, end_mode: u8, url: String) {
         let event = CompletionEvent::ReportAvailable {
             uid,
             play_key,
             match_id,
             end_mode,
+            url,
         };
 
         if let Err(e) = self.completion_thread_notifier.send(event) {

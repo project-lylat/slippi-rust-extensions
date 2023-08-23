@@ -54,7 +54,9 @@ void slprs_exi_device_dma_read(uintptr_t exi_device_instance_ptr,
 /// will then add it to the processing pipeline.
 ///
 /// The reporter will manage the actual... reporting.
-void slprs_exi_device_log_game_report(uintptr_t instance_ptr, uintptr_t game_report_instance_ptr);
+void slprs_exi_device_log_game_report(uintptr_t instance_ptr,
+                                      uintptr_t game_report_instance_ptr,
+                                      const char *url);
 
 /// Calls through to `SlippiGameReporter::start_new_session`.
 void slprs_exi_device_start_new_reporter_session(uintptr_t instance_ptr);
@@ -65,14 +67,16 @@ void slprs_exi_device_report_match_completion(uintptr_t instance_ptr,
                                               const char *uid,
                                               const char *play_key,
                                               const char *match_id,
-                                              uint8_t end_mode);
+                                              uint8_t end_mode,
+                                              const char *url);
 
 /// Calls through to the `SlippiGameReporter` on the EXI device to report a
 /// match abandon event.
 void slprs_exi_device_report_match_abandonment(uintptr_t instance_ptr,
                                                const char *uid,
                                                const char *play_key,
-                                               const char *match_id);
+                                               const char *match_id,
+                                               const char *url);
 
 /// Calls through to `SlippiGameReporter::push_replay_data`.
 void slprs_exi_device_reporter_push_replay_data(uintptr_t instance_ptr,
