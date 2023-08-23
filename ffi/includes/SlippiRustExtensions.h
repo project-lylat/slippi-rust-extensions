@@ -147,9 +147,4 @@ void slprs_logging_register_container(const char *kind,
 /// For more information, see `dolphin_logger::update_container`.
 void slprs_logging_update_container(const char *kind, bool enabled, int level);
 
-/// Updates the configuration for registered logging container on mainline
-///
-/// For more information, see `dolphin_logger::update_container`.
-void slprs_mainline_logging_update_log_level(int level);
-
 } // extern "C"

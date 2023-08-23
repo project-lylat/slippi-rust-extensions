@@ -149,19 +149,3 @@ pub fn update_container(kind: *const c_char, enabled: bool, level: c_int) {
         }
     }
 }
-
-/// Mainline doesn't have levels per container, but we'll keep it that way to avoid diverging the codebase.
-/// Once Ishii dies we should remove this and refactor all this.
-pub fn mainline_update_log_level(level: c_int) {
-    let containers = LOG_CONTAINERS
-        .get()
-        .expect("[dolphin_logger::mainline_update_log_level]: Attempting to get `LOG_CONTAINERS` before init");
-
-    let mut writer = containers
-        .write()
-        .expect("[dolphin_logger::mainline_update_log_level]: Unable to acquire write lock on `LOG_CONTAINERS`?");
-
-    for container in (*writer).iter_mut() {
-        container.level = convert_dolphin_log_level_to_tracing_level(level);
-    }
-}
