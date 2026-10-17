@@ -20,9 +20,6 @@ pub struct SlippiConfig {
 
     /// Page opened when the client needs an update.
     pub update_page_url: Option<String>,
-
-    /// Account file name in the user folder.
-    pub account_file: Option<String>,
 }
 
 impl SlippiConfig {
@@ -33,7 +30,6 @@ impl SlippiConfig {
             user_rest_url: other.user_rest_url.or(self.user_rest_url),
             login_page_url: other.login_page_url.or(self.login_page_url),
             update_page_url: other.update_page_url.or(self.update_page_url),
-            account_file: other.account_file.or(self.account_file),
         }
     }
 
@@ -45,7 +41,6 @@ impl SlippiConfig {
             user_rest_url: env::var("SLIPPI_USER_REST_URL").ok(),
             login_page_url: env::var("SLIPPI_LOGIN_PAGE_URL").ok(),
             update_page_url: env::var("SLIPPI_UPDATE_PAGE_URL").ok(),
-            account_file: env::var("SLIPPI_ACCOUNT_FILE").ok(),
         }
     }
 

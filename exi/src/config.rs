@@ -1,4 +1,5 @@
 use slippi_gg_api::Endpoints;
+use slippi_user::AccountFile;
 
 /// Various paths that we need in a few places.
 #[derive(Debug)]
@@ -29,4 +30,7 @@ pub struct Config {
 
     /// Servers the device talks to; Slippi's unless the Dolphin side passes others.
     pub endpoints: Endpoints,
+
+    /// Lylat: account files to read, in order. Empty keeps Slippi's `user.json`.
+    pub account_files: Vec<AccountFile>,
 }

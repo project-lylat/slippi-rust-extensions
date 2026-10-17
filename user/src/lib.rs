@@ -20,6 +20,101 @@ use rank_fetcher::{RankFetcher, RankFetcherStatus, SlippiRank};
 mod watcher;
 use watcher::UserInfoWatcher;
 
+/// Lylat: one place the account can be read from.
+#[derive(Clone, Debug)]
+pub struct AccountFile {
+    pub path: PathBuf,
+
+    /// Read the account from this object inside the file (i.e: `slippi`, the Slippi account
+    /// linked to a Lylat account), over the file's top-level fields. When it is missing or has
+    /// no `uid`, the next file is tried.
+    pub section: Option<String>,
+}
+
+/// Lylat: the account files, tried in order until one holds an account. The first is the one
+/// the login page writes; logout removes the one that was loaded.
+#[derive(Debug)]
+pub struct AccountFiles {
+    files: Vec<AccountFile>,
+    loaded: Mutex<Option<PathBuf>>,
+}
+
+impl AccountFiles {
+    pub fn new(files: Vec<AccountFile>) -> Self {
+        Self {
+            files,
+            loaded: Mutex::new(None),
+        }
+    }
+
+    /// Slippi's setup: `user.json` in the user folder.
+    fn single(path: PathBuf) -> Self {
+        Self::new(vec![AccountFile { path, section: None }])
+    }
+
+    fn primary(&self) -> &PathBuf {
+        &self.files[0].path
+    }
+
+    /// Reads the first account file that holds an account, and remembers which one it was.
+    fn read(&self) -> Option<Result<UserInfo, serde_json::Error>> {
+        let mut last_error = None;
+
+        for file in &self.files {
+            let contents = match std::fs::read_to_string(&file.path) {
+                Ok(contents) => contents,
+                Err(error) => {
+                    // A not-found file just means they haven't logged in yet... presumably.
+                    if error.kind() != std::io::ErrorKind::NotFound {
+                        tracing::error!(target: Log::SlippiOnline, ?error, path = ?file.path, "Unable to read account file");
+                    }
+                    continue;
+                },
+            };
+
+            let mut value = match serde_json::from_str::<serde_json::Value>(&contents) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::error!(target: Log::SlippiOnline, ?error, path = ?file.path, "Unable to parse account file");
+                    last_error = Some(error);
+                    continue;
+                },
+            };
+
+            if let Some(section) = &file.section {
+                let has_uid = |fields: &serde_json::Map<String, serde_json::Value>| {
+                    fields
+                        .get("uid")
+                        .and_then(|uid| uid.as_str())
+                        .is_some_and(|uid| !uid.is_empty())
+                };
+
+                let fields = match value.get(section.as_str()).and_then(|fields| fields.as_object()) {
+                    Some(fields) if has_uid(fields) => fields.clone(),
+                    _ => continue,
+                };
+
+                if let Some(root) = value.as_object_mut() {
+                    root.extend(fields);
+                }
+            }
+
+            match serde_json::from_value::<UserInfo>(value) {
+                Ok(info) => {
+                    *self.loaded.lock().unwrap() = Some(file.path.clone());
+                    return Some(Ok(info));
+                },
+                Err(error) => {
+                    tracing::error!(target: Log::SlippiOnline, ?error, path = ?file.path, "Unable to parse account file");
+                    last_error = Some(error);
+                },
+            }
+        }
+
+        last_error.map(Err)
+    }
+}
+
 /// The core payload that represents user information. This type is expected to conform
 /// to the same definition that the remote server uses.
 #[derive(Debug, Default, serde::Deserialize)]
@@ -76,7 +171,7 @@ pub struct UserManager {
     api_client: APIClient,
     user: Arc<Mutex<UserInfo>>,
     rank: Arc<Mutex<RankInfo>>,
-    user_json_path: Arc<PathBuf>,
+    user_json_path: Arc<AccountFiles>,
     pub direct_codes: DirectCodes,
     pub teams_direct_codes: DirectCodes,
     slippi_semver: String,
@@ -107,10 +202,10 @@ impl UserManager {
             path
         });
 
-        let user_json_path = Arc::new({
-            user_config_folder.push(&api_client.endpoints().account_file);
+        let user_json_path = Arc::new(AccountFiles::single({
+            user_config_folder.push("user.json");
             user_config_folder
-        });
+        }));
 
         let user = Arc::new(Mutex::new(UserInfo::default()));
         let rank = Arc::new(Mutex::new(RankInfo::default()));
@@ -129,6 +224,14 @@ impl UserManager {
             watcher,
             rank_fetcher,
         }
+    }
+
+    /// Lylat: reads the account from these files, in order, instead of `user.json`.
+    pub fn with_account_files(mut self, files: Vec<AccountFile>) -> Self {
+        if !files.is_empty() {
+            self.user_json_path = Arc::new(AccountFiles::new(files));
+        }
+        self
     }
 
     /// User info is held behind a Mutex as we access it from multiple threads. To read data
@@ -208,7 +311,7 @@ impl UserManager {
     /// Pops open a browser window for the older authentication flow. This is less encountered by
     /// users as time goes on, but may still be used.
     pub fn open_login_page(&self) {
-        let path_ref = self.user_json_path.as_path();
+        let path_ref = self.user_json_path.primary().as_path();
 
         if let Some(path) = path_ref.to_str() {
             let login_page = &self.api_client.endpoints().login_page;
@@ -276,8 +379,10 @@ impl UserManager {
         self.rank_fetcher.status.set(RankFetchStatus::Error);
         self.set(|user| *user = UserInfo::default());
 
-        if let Err(error) = std::fs::remove_file(self.user_json_path.as_path()) {
-            tracing::error!(target: Log::SlippiOnline, ?error, "Failed to remove user.json on logout");
+        if let Some(path) = self.user_json_path.loaded.lock().unwrap().take() {
+            if let Err(error) = std::fs::remove_file(&path) {
+                tracing::error!(target: Log::SlippiOnline, ?error, "Failed to remove user.json on logout");
+            }
         }
 
         let mut watcher = self.watcher.lock().expect("Unable to acquire watcher lock on user logout");
@@ -294,13 +399,13 @@ fn attempt_login(
     user: &Mutex<UserInfo>,
     rank: &Mutex<RankInfo>,
     rank_fetcher_status: &RankFetcherStatus,
-    user_json_path: &PathBuf,
+    user_json_path: &AccountFiles,
     slippi_semver: &str,
 ) -> bool {
     let mut parse_successful = false;
 
-    match std::fs::read_to_string(user_json_path) {
-        Ok(contents) => match serde_json::from_str::<UserInfo>(&contents) {
+    match user_json_path.read() {
+        Some(contents) => match contents {
             Ok(mut info) => {
                 info.sanitize();
 
@@ -335,13 +440,8 @@ fn attempt_login(
             },
         },
 
-        // Filesystem I/O error
-        Err(error) => {
-            // A not-found file just means they haven't logged in yet... presumably.
-            if error.kind() != std::io::ErrorKind::NotFound {
-                tracing::error!(target: Log::SlippiOnline, ?error, "Unable to read user.json");
-            }
-        },
+        // No account file yet; read errors are logged by `AccountFiles::read`.
+        None => {},
     }
 
     parse_successful
@@ -448,4 +548,81 @@ fn overwrite_from_server(
     };
 
     Ok(())
+}
+
+#[cfg(test)]
+mod lylat_account_tests {
+    use super::{AccountFile, AccountFiles};
+    use std::path::PathBuf;
+
+    const LYLAT: &str = r#"{"uid":"lylat-uid","playKey":"lylat-key","displayName":"Rob","connectCode":"ROB#1","latestVersion":"1.0","slippi":{"uid":"slp-uid","playKey":"slp-key","connectCode":"SLP#2","latestVersion":"3.5"}}"#;
+    const LYLAT_UNLINKED: &str =
+        r#"{"uid":"lylat-uid","playKey":"lylat-key","displayName":"Rob","connectCode":"ROB#1","latestVersion":"1.0"}"#;
+    const USER_JSON: &str =
+        r#"{"uid":"user-uid","playKey":"user-key","displayName":"Rob","connectCode":"USR#3","latestVersion":"3.5"}"#;
+
+    fn dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("lylat-account-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn files(dir: &PathBuf, section: Option<&str>) -> AccountFiles {
+        AccountFiles::new(vec![
+            AccountFile {
+                path: dir.join("lylat.json"),
+                section: section.map(String::from),
+            },
+            AccountFile {
+                path: dir.join("user.json"),
+                section: None,
+            },
+        ])
+    }
+
+    #[test]
+    fn slippi_section_over_lylat_fields() {
+        let dir = dir("section");
+        std::fs::write(dir.join("lylat.json"), LYLAT).unwrap();
+        std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
+        let info = files(&dir, Some("slippi")).read().unwrap().unwrap();
+        assert_eq!(
+            (info.uid.as_str(), info.play_key.as_str(), info.connect_code.as_str()),
+            ("slp-uid", "slp-key", "SLP#2")
+        );
+        assert_eq!(info.display_name, "Rob");
+    }
+
+    #[test]
+    fn unlinked_lylat_falls_back_to_user_json() {
+        let dir = dir("unlinked");
+        std::fs::write(dir.join("lylat.json"), LYLAT_UNLINKED).unwrap();
+        std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
+        let files = files(&dir, Some("slippi"));
+        assert_eq!(files.read().unwrap().unwrap().uid, "user-uid");
+        assert_eq!(files.loaded.lock().unwrap().as_ref(), Some(&dir.join("user.json")));
+    }
+
+    #[test]
+    fn missing_lylat_falls_back_to_user_json() {
+        let dir = dir("missing");
+        std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
+        assert_eq!(files(&dir, None).read().unwrap().unwrap().uid, "user-uid");
+    }
+
+    #[test]
+    fn lylat_account_from_top_level() {
+        let dir = dir("top");
+        std::fs::write(dir.join("lylat.json"), LYLAT).unwrap();
+        std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
+        let info = files(&dir, None).read().unwrap().unwrap();
+        assert_eq!((info.uid.as_str(), info.play_key.as_str()), ("lylat-uid", "lylat-key"));
+    }
+
+    #[test]
+    fn no_files_is_not_logged_in() {
+        let dir = dir("none");
+        assert!(files(&dir, Some("slippi")).read().is_none());
+    }
 }

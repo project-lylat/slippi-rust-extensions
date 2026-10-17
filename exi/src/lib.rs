@@ -14,6 +14,7 @@ use slippi_user::UserManager;
 mod config;
 pub use config::{Config, FilePathsConfig, SCMConfig};
 pub use slippi_gg_api::Endpoints;
+pub use slippi_user::AccountFile;
 
 /// An EXI Device subclass specific to managing and interacting with the game itself.
 #[derive(Debug)]
@@ -45,7 +46,8 @@ impl SlippiEXIDevice {
             api_client.clone(),
             config.paths.user_config_folder.clone().into(),
             config.scm.slippi_semver.clone(),
-        );
+        )
+        .with_account_files(config.account_files.clone());
 
         let game_reporter = GameReporter::new(
             api_client.clone(),

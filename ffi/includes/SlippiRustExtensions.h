@@ -112,11 +112,21 @@ extern "C" {
 uintptr_t slprs_exi_device_create(struct SlippiRustEXIConfig config);
 
 /**
- * Lylat: `slprs_exi_device_create`, but talking to the Lylat servers of the environment this
- * library was built for (`SLIPPI_ENV`, see the `slippi-config` crate), with the Lylat account
- * file. The `SLIPPI_*` environment variables listed there override them when the game starts.
+ * Lylat: `slprs_exi_device_create` for a Lylat build. The Dolphin side calls it once per game:
+ *
+ * - `lylat_servers` false (vanilla): Slippi's servers, with the Slippi account linked to the
+ *   Lylat account (the `slippi` section of `lylat_account_path`).
+ * - `lylat_servers` true (mods): the Lylat servers, with the Lylat account in
+ *   `lylat_account_path`.
+ *
+ * Either way Slippi's `user.json` is the fallback when that account is missing. The Lylat
+ * addresses (servers, sign-in and update pages) come from the environment this library was
+ * built for (`SLIPPI_ENV`, see the `slippi-config` crate); the `SLIPPI_*` variables listed
+ * there override them when the game starts.
  */
-uintptr_t slprs_exi_device_create_lylat(struct SlippiRustEXIConfig config);
+uintptr_t slprs_exi_device_create_lylat(struct SlippiRustEXIConfig config,
+                                        bool lylat_servers,
+                                        const char *lylat_account_path);
 
 /**
  * The C++ (Dolphin) side of things should call this to notify the Rust side that it

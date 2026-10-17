@@ -7,7 +7,6 @@ impl SlippiConfig {
             user_rest_url: Some(String::from("https://lylat.gg/users/slp")),
             login_page_url: Some(String::from("https://lylat.gg/users/enable")),
             update_page_url: Some(String::from("https://lylat.gg/download")),
-            account_file: Some(String::from("lylat.json")),
         }
     }
 }

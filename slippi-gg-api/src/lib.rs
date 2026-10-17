@@ -36,7 +36,7 @@ pub(crate) fn default_timeout() -> Duration {
     Duration::from_millis(5000)
 }
 
-/// The service an `APIClient` talks to: its servers, web pages and account file. The defaults
+/// The service an `APIClient` talks to: its servers and web pages. The defaults
 /// are Slippi's; a fork can point a client at its own service with `APIClient::with_endpoints`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Endpoints {
@@ -51,9 +51,6 @@ pub struct Endpoints {
 
     /// Page opened when the client needs an update.
     pub update_page: String,
-
-    /// Account file name in the user folder.
-    pub account_file: String,
 }
 
 impl Default for Endpoints {
@@ -63,7 +60,6 @@ impl Default for Endpoints {
             user_rest: "https://users-rest-dot-slippi.uc.r.appspot.com/user".into(),
             login_page: "https://slippi.gg/online/enable".into(),
             update_page: "https://slippi.gg/downloads?update=true".into(),
-            account_file: "user.json".into(),
         }
     }
 }

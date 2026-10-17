@@ -2,7 +2,7 @@ use std::ffi::{c_char, c_int};
 
 use dolphin_integrations::Log;
 use slippi_config::SlippiConfig;
-use slippi_exi_device::{Config, Endpoints, FilePathsConfig, JukeboxConfiguration, SCMConfig, SlippiEXIDevice};
+use slippi_exi_device::{AccountFile, Config, Endpoints, FilePathsConfig, JukeboxConfiguration, SCMConfig, SlippiEXIDevice};
 use slippi_game_reporter::GameReport;
 use slippi_game_reporter::{IsoMd5CheckResult, IsoMd5CheckState};
 
@@ -57,25 +57,41 @@ pub struct SlippiRustEXIConfig {
 /// The returned pointer from this should *not* be used after calling `slprs_exi_device_destroy`.
 #[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_create(config: SlippiRustEXIConfig) -> usize {
-    create_exi_device(config, Endpoints::default(), "slprs_exi_device_create")
+    create_exi_device(config, Endpoints::default(), Vec::new(), "slprs_exi_device_create")
 }
 
-/// Lylat: `slprs_exi_device_create`, but talking to the Lylat servers of the environment this
-/// library was built for (`SLIPPI_ENV`, see the `slippi-config` crate), with the Lylat account
-/// file. The `SLIPPI_*` environment variables listed there override them when the game starts.
+/// Lylat: `slprs_exi_device_create` for a Lylat build. The Dolphin side calls it once per game:
+///
+/// - `lylat_servers` false (vanilla): Slippi's servers, with the Slippi account linked to the
+///   Lylat account (the `slippi` section of `lylat_account_path`).
+/// - `lylat_servers` true (mods): the Lylat servers, with the Lylat account in
+///   `lylat_account_path`.
+///
+/// Either way Slippi's `user.json` is the fallback when that account is missing. The Lylat
+/// addresses (servers, sign-in and update pages) come from the environment this library was
+/// built for (`SLIPPI_ENV`, see the `slippi-config` crate); the `SLIPPI_*` variables listed
+/// there override them when the game starts.
 #[unsafe(no_mangle)]
-pub extern "C" fn slprs_exi_device_create_lylat(config: SlippiRustEXIConfig) -> usize {
+pub extern "C" fn slprs_exi_device_create_lylat(
+    config: SlippiRustEXIConfig,
+    lylat_servers: bool,
+    lylat_account_path: *const c_char,
+) -> usize {
+    let fn_name = "slprs_exi_device_create_lylat";
     let lylat = SlippiConfig::get();
     let mut endpoints = Endpoints::default();
 
-    if let Some(graphql_url) = lylat.graphql_url {
-        endpoints.graphql = graphql_url;
+    if lylat_servers {
+        if let Some(graphql_url) = lylat.graphql_url {
+            endpoints.graphql = graphql_url;
+        }
+
+        if let Some(user_rest_url) = lylat.user_rest_url {
+            endpoints.user_rest = user_rest_url;
+        }
     }
 
-    if let Some(user_rest_url) = lylat.user_rest_url {
-        endpoints.user_rest = user_rest_url;
-    }
-
+    // The account is signed in, and the update downloaded, on the Lylat site in both cases.
     if let Some(login_page_url) = lylat.login_page_url {
         endpoints.login_page = login_page_url;
     }
@@ -84,14 +100,24 @@ pub extern "C" fn slprs_exi_device_create_lylat(config: SlippiRustEXIConfig) -> 
         endpoints.update_page = update_page_url;
     }
 
-    if let Some(account_file) = lylat.account_file {
-        endpoints.account_file = account_file;
-    }
+    let mut user_json = std::path::PathBuf::from(c_str_to_string(config.user_config_folder, fn_name, "user_config_folder"));
+    user_json.push("user.json");
 
-    create_exi_device(config, endpoints, "slprs_exi_device_create_lylat")
+    let account_files = vec![
+        AccountFile {
+            path: c_str_to_string(lylat_account_path, fn_name, "lylat_account_path").into(),
+            section: if lylat_servers { None } else { Some(String::from("slippi")) },
+        },
+        AccountFile {
+            path: user_json,
+            section: None,
+        },
+    ];
+
+    create_exi_device(config, endpoints, account_files, fn_name)
 }
 
-fn create_exi_device(config: SlippiRustEXIConfig, endpoints: Endpoints, fn_name: &str) -> usize {
+fn create_exi_device(config: SlippiRustEXIConfig, endpoints: Endpoints, account_files: Vec<AccountFile>, fn_name: &str) -> usize {
     dolphin_integrations::ffi::osd::set_global_hook(config.osd_add_msg_fn);
 
     let exi_device = Box::new(SlippiEXIDevice::new(Config {
@@ -105,6 +131,7 @@ fn create_exi_device(config: SlippiRustEXIConfig, endpoints: Endpoints, fn_name:
         },
 
         endpoints,
+        account_files,
     }));
 
     let exi_device_instance_ptr = Box::into_raw(exi_device) as usize;

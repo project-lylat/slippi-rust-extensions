@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -7,7 +6,7 @@ use std::time::Duration;
 use dolphin_integrations::Log;
 use slippi_gg_api::APIClient;
 
-use super::{RankFetcherStatus, RankInfo, UserInfo, attempt_login};
+use super::{AccountFiles, RankFetcherStatus, RankInfo, UserInfo, attempt_login};
 
 /// This type manages access to user information, as well as any background thread watching
 /// for `user.json` file existence.
@@ -30,7 +29,7 @@ impl UserInfoWatcher {
     pub fn watch_for_login(
         &mut self,
         api_client: &APIClient,
-        user_json_path: &Arc<PathBuf>,
+        user_json_path: &Arc<AccountFiles>,
         user: &Arc<Mutex<UserInfo>>,
         rank: &Arc<Mutex<RankInfo>>,
         rank_fetcher_status: &RankFetcherStatus,
