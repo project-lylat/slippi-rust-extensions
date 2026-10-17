@@ -62,13 +62,13 @@ pub extern "C" fn slprs_exi_device_create(config: SlippiRustEXIConfig) -> usize 
 
 /// Lylat: `slprs_exi_device_create` for a Lylat build. The Dolphin side calls it once per game:
 ///
-/// - `lylat_servers` false (vanilla): Slippi's servers, with the Slippi account linked to the
-///   Lylat account (the `slippi` section of `lylat_account_path`).
+/// - `lylat_servers` false (vanilla): Slippi's servers, with Slippi credentials only: the Slippi
+///   account linked to the Lylat account (the `slippi` section of `lylat_account_path`), or
+///   Slippi's own `user.json` when there is none.
 /// - `lylat_servers` true (mods): the Lylat servers, with the Lylat account in
-///   `lylat_account_path`.
+///   `lylat_account_path` and nothing else.
 ///
-/// Either way Slippi's `user.json` is the fallback when that account is missing. The Lylat
-/// addresses (servers, sign-in and update pages) come from the environment this library was
+/// The Lylat addresses (servers, sign-in and update pages) come from the environment this library was
 /// built for (`SLIPPI_ENV`, see the `slippi-config` crate); the `SLIPPI_*` variables listed
 /// there override them when the game starts.
 #[unsafe(no_mangle)]
@@ -100,19 +100,28 @@ pub extern "C" fn slprs_exi_device_create_lylat(
         endpoints.update_page = update_page_url;
     }
 
-    let mut user_json = std::path::PathBuf::from(c_str_to_string(config.user_config_folder, fn_name, "user_config_folder"));
-    user_json.push("user.json");
+    let lylat_json = std::path::PathBuf::from(c_str_to_string(lylat_account_path, fn_name, "lylat_account_path"));
 
-    let account_files = vec![
-        AccountFile {
-            path: c_str_to_string(lylat_account_path, fn_name, "lylat_account_path").into(),
-            section: if lylat_servers { None } else { Some(String::from("slippi")) },
-        },
-        AccountFile {
-            path: user_json,
+    let account_files = if lylat_servers {
+        vec![AccountFile {
+            path: lylat_json,
             section: None,
-        },
-    ];
+        }]
+    } else {
+        let mut user_json = std::path::PathBuf::from(c_str_to_string(config.user_config_folder, fn_name, "user_config_folder"));
+        user_json.push("user.json");
+
+        vec![
+            AccountFile {
+                path: lylat_json,
+                section: Some(String::from("slippi")),
+            },
+            AccountFile {
+                path: user_json,
+                section: None,
+            },
+        ]
+    };
 
     create_exi_device(config, endpoints, account_files, fn_name)
 }

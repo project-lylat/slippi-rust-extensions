@@ -114,13 +114,13 @@ uintptr_t slprs_exi_device_create(struct SlippiRustEXIConfig config);
 /**
  * Lylat: `slprs_exi_device_create` for a Lylat build. The Dolphin side calls it once per game:
  *
- * - `lylat_servers` false (vanilla): Slippi's servers, with the Slippi account linked to the
- *   Lylat account (the `slippi` section of `lylat_account_path`).
+ * - `lylat_servers` false (vanilla): Slippi's servers, with Slippi credentials only: the Slippi
+ *   account linked to the Lylat account (the `slippi` section of `lylat_account_path`), or
+ *   Slippi's own `user.json` when there is none.
  * - `lylat_servers` true (mods): the Lylat servers, with the Lylat account in
- *   `lylat_account_path`.
+ *   `lylat_account_path` and nothing else.
  *
- * Either way Slippi's `user.json` is the fallback when that account is missing. The Lylat
- * addresses (servers, sign-in and update pages) come from the environment this library was
+ * The Lylat addresses (servers, sign-in and update pages) come from the environment this library was
  * built for (`SLIPPI_ENV`, see the `slippi-config` crate); the `SLIPPI_*` variables listed
  * there override them when the game starts.
  */

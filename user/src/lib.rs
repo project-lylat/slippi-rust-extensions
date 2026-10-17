@@ -26,8 +26,8 @@ pub struct AccountFile {
     pub path: PathBuf,
 
     /// Read the account from this object inside the file (i.e: `slippi`, the Slippi account
-    /// linked to a Lylat account), over the file's top-level fields. When it is missing or has
-    /// no `uid`, the next file is tried.
+    /// linked to a Lylat account) instead of the top level; only `displayName` may come from the
+    /// top level. When it is missing or has no `uid` or `playKey`, the next file is tried.
     pub section: Option<String>,
 }
 
@@ -82,21 +82,27 @@ impl AccountFiles {
             };
 
             if let Some(section) = &file.section {
-                let has_uid = |fields: &serde_json::Map<String, serde_json::Value>| {
+                let has = |fields: &serde_json::Map<String, serde_json::Value>, key: &str| {
                     fields
-                        .get("uid")
-                        .and_then(|uid| uid.as_str())
-                        .is_some_and(|uid| !uid.is_empty())
+                        .get(key)
+                        .and_then(|field| field.as_str())
+                        .is_some_and(|field| !field.is_empty())
                 };
 
-                let fields = match value.get(section.as_str()).and_then(|fields| fields.as_object()) {
-                    Some(fields) if has_uid(fields) => fields.clone(),
+                let mut fields = match value.get(section.as_str()).and_then(|fields| fields.as_object()) {
+                    Some(fields) if has(fields, "uid") && has(fields, "playKey") => fields.clone(),
                     _ => continue,
                 };
 
-                if let Some(root) = value.as_object_mut() {
-                    root.extend(fields);
+                // Credentials come from the section alone; only the display name may come from
+                // the top level (the Lylat account's), until the server refresh replaces it.
+                if !has(&fields, "displayName") {
+                    if let Some(display_name) = value.get("displayName") {
+                        fields.insert(String::from("displayName"), display_name.clone());
+                    }
                 }
+
+                value = serde_json::Value::Object(fields);
             }
 
             match serde_json::from_value::<UserInfo>(value) {
@@ -568,11 +574,12 @@ mod lylat_account_tests {
         dir
     }
 
-    fn files(dir: &PathBuf, section: Option<&str>) -> AccountFiles {
+    /// The vanilla list `slprs_exi_device_create_lylat` builds: Slippi credentials only.
+    fn vanilla(dir: &PathBuf) -> AccountFiles {
         AccountFiles::new(vec![
             AccountFile {
                 path: dir.join("lylat.json"),
-                section: section.map(String::from),
+                section: Some(String::from("slippi")),
             },
             AccountFile {
                 path: dir.join("user.json"),
@@ -581,12 +588,20 @@ mod lylat_account_tests {
         ])
     }
 
+    /// The mod list: the Lylat account in lylat.json and nothing else.
+    fn modded(dir: &PathBuf) -> AccountFiles {
+        AccountFiles::new(vec![AccountFile {
+            path: dir.join("lylat.json"),
+            section: None,
+        }])
+    }
+
     #[test]
-    fn slippi_section_over_lylat_fields() {
+    fn vanilla_uses_the_linked_slippi_account() {
         let dir = dir("section");
         std::fs::write(dir.join("lylat.json"), LYLAT).unwrap();
         std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
-        let info = files(&dir, Some("slippi")).read().unwrap().unwrap();
+        let info = vanilla(&dir).read().unwrap().unwrap();
         assert_eq!(
             (info.uid.as_str(), info.play_key.as_str(), info.connect_code.as_str()),
             ("slp-uid", "slp-key", "SLP#2")
@@ -595,34 +610,45 @@ mod lylat_account_tests {
     }
 
     #[test]
-    fn unlinked_lylat_falls_back_to_user_json() {
+    fn vanilla_unlinked_lylat_falls_back_to_user_json() {
         let dir = dir("unlinked");
         std::fs::write(dir.join("lylat.json"), LYLAT_UNLINKED).unwrap();
         std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
-        let files = files(&dir, Some("slippi"));
+        let files = vanilla(&dir);
         assert_eq!(files.read().unwrap().unwrap().uid, "user-uid");
         assert_eq!(files.loaded.lock().unwrap().as_ref(), Some(&dir.join("user.json")));
     }
 
     #[test]
-    fn missing_lylat_falls_back_to_user_json() {
-        let dir = dir("missing");
-        std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
-        assert_eq!(files(&dir, None).read().unwrap().unwrap().uid, "user-uid");
+    fn vanilla_never_takes_lylat_credentials() {
+        let dir = dir("nokey");
+        let no_key = r#"{"uid":"lylat-uid","playKey":"lylat-key","displayName":"Rob","connectCode":"ROB#1","latestVersion":"1.0","slippi":{"uid":"slp-uid","connectCode":"SLP#2","latestVersion":"3.5"}}"#;
+        std::fs::write(dir.join("lylat.json"), no_key).unwrap();
+        assert!(vanilla(&dir).read().is_none());
+        std::fs::write(dir.join("lylat.json"), LYLAT_UNLINKED).unwrap();
+        assert!(vanilla(&dir).read().is_none());
     }
 
     #[test]
-    fn lylat_account_from_top_level() {
+    fn vanilla_without_lylat_json_uses_user_json() {
+        let dir = dir("missing");
+        std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
+        assert_eq!(vanilla(&dir).read().unwrap().unwrap().uid, "user-uid");
+    }
+
+    #[test]
+    fn mod_uses_the_lylat_account() {
         let dir = dir("top");
         std::fs::write(dir.join("lylat.json"), LYLAT).unwrap();
         std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
-        let info = files(&dir, None).read().unwrap().unwrap();
+        let info = modded(&dir).read().unwrap().unwrap();
         assert_eq!((info.uid.as_str(), info.play_key.as_str()), ("lylat-uid", "lylat-key"));
     }
 
     #[test]
-    fn no_files_is_not_logged_in() {
-        let dir = dir("none");
-        assert!(files(&dir, Some("slippi")).read().is_none());
+    fn mod_needs_lylat_json() {
+        let dir = dir("modnone");
+        std::fs::write(dir.join("user.json"), USER_JSON).unwrap();
+        assert!(modded(&dir).read().is_none());
     }
 }
