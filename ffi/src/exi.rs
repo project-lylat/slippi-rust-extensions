@@ -1,7 +1,7 @@
 use std::ffi::{c_char, c_int};
 
 use dolphin_integrations::Log;
-use slippi_exi_device::{Config, FilePathsConfig, JukeboxConfiguration, SCMConfig, SlippiEXIDevice};
+use slippi_exi_device::{Config, Endpoints, FilePathsConfig, JukeboxConfiguration, SCMConfig, SlippiEXIDevice};
 use slippi_game_reporter::GameReport;
 use slippi_game_reporter::{IsoMd5CheckResult, IsoMd5CheckState};
 
@@ -56,9 +56,33 @@ pub struct SlippiRustEXIConfig {
 /// The returned pointer from this should *not* be used after calling `slprs_exi_device_destroy`.
 #[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_create(config: SlippiRustEXIConfig) -> usize {
-    dolphin_integrations::ffi::osd::set_global_hook(config.osd_add_msg_fn);
+    create_exi_device(config, Endpoints::default(), "slprs_exi_device_create")
+}
 
-    let fn_name = "slprs_exi_device_create";
+/// Lylat: `slprs_exi_device_create`, but talking to other servers. A null URL keeps Slippi's
+/// server for that endpoint. `user_rest_url` gets `[-beta]/{uid}?...` appended, like Slippi's.
+#[unsafe(no_mangle)]
+pub extern "C" fn slprs_exi_device_create_with_endpoints(
+    config: SlippiRustEXIConfig,
+    graphql_url: *const c_char,
+    user_rest_url: *const c_char,
+) -> usize {
+    let fn_name = "slprs_exi_device_create_with_endpoints";
+    let mut endpoints = Endpoints::default();
+
+    if !graphql_url.is_null() {
+        endpoints.graphql = c_str_to_string(graphql_url, fn_name, "graphql_url");
+    }
+
+    if !user_rest_url.is_null() {
+        endpoints.user_rest = c_str_to_string(user_rest_url, fn_name, "user_rest_url");
+    }
+
+    create_exi_device(config, endpoints, fn_name)
+}
+
+fn create_exi_device(config: SlippiRustEXIConfig, endpoints: Endpoints, fn_name: &str) -> usize {
+    dolphin_integrations::ffi::osd::set_global_hook(config.osd_add_msg_fn);
 
     let exi_device = Box::new(SlippiEXIDevice::new(Config {
         paths: FilePathsConfig {
@@ -69,6 +93,8 @@ pub extern "C" fn slprs_exi_device_create(config: SlippiRustEXIConfig) -> usize 
         scm: SCMConfig {
             slippi_semver: c_str_to_string(config.scm_slippi_semver_str, fn_name, "slippi_semver"),
         },
+
+        endpoints,
     }));
 
     let exi_device_instance_ptr = Box::into_raw(exi_device) as usize;

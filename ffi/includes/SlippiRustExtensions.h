@@ -112,6 +112,14 @@ extern "C" {
 uintptr_t slprs_exi_device_create(struct SlippiRustEXIConfig config);
 
 /**
+ * Lylat: `slprs_exi_device_create`, but talking to other servers. A null URL keeps Slippi's
+ * server for that endpoint. `user_rest_url` gets `[-beta]/{uid}?...` appended, like Slippi's.
+ */
+uintptr_t slprs_exi_device_create_with_endpoints(struct SlippiRustEXIConfig config,
+                                                 const char *graphql_url,
+                                                 const char *user_rest_url);
+
+/**
  * The C++ (Dolphin) side of things should call this to notify the Rust side that it
  * can safely shut down and clean up.
  */

@@ -1,3 +1,5 @@
+use slippi_gg_api::Endpoints;
+
 /// Various paths that we need in a few places.
 #[derive(Debug)]
 pub struct FilePathsConfig {
@@ -24,4 +26,7 @@ pub struct SCMConfig {
 pub struct Config {
     pub paths: FilePathsConfig,
     pub scm: SCMConfig,
+
+    /// Servers the device talks to; Slippi's unless the Dolphin side passes others.
+    pub endpoints: Endpoints,
 }

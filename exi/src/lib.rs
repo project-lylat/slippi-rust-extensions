@@ -13,6 +13,7 @@ use slippi_user::UserManager;
 
 mod config;
 pub use config::{Config, FilePathsConfig, SCMConfig};
+pub use slippi_gg_api::Endpoints;
 
 /// An EXI Device subclass specific to managing and interacting with the game itself.
 #[derive(Debug)]
@@ -38,7 +39,7 @@ impl SlippiEXIDevice {
     pub fn new(config: Config) -> Self {
         tracing::info!(target: Log::SlippiOnline, "Starting SlippiEXIDevice");
 
-        let api_client = APIClient::new(&config.scm.slippi_semver);
+        let api_client = APIClient::new(&config.scm.slippi_semver).with_endpoints(config.endpoints.clone());
 
         let user_manager = UserManager::new(
             api_client.clone(),

@@ -1,6 +1,7 @@
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 use std::time::Duration;
 
 use ureq::{Agent, AgentBuilder, Resolver};
@@ -35,6 +36,26 @@ pub(crate) fn default_timeout() -> Duration {
     Duration::from_millis(5000)
 }
 
+/// The servers an `APIClient` talks to. The defaults are Slippi's; a fork can point a client
+/// at its own servers with `APIClient::with_endpoints`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Endpoints {
+    /// GraphQL endpoint (game reports, rank, match status).
+    pub graphql: String,
+
+    /// User REST endpoint; the client appends `[-beta]/{uid}?...` to it.
+    pub user_rest: String,
+}
+
+impl Default for Endpoints {
+    fn default() -> Self {
+        Self {
+            graphql: "https://internal.slippi.gg/graphql".into(),
+            user_rest: "https://users-rest-dot-slippi.uc.r.appspot.com/user".into(),
+        }
+    }
+}
+
 /// A wrapper type that simply dereferences to a `ureq::Agent`.
 ///
 /// It's extracted purely for ease of debugging, and for segmenting
@@ -45,7 +66,10 @@ pub(crate) fn default_timeout() -> Duration {
 /// this type. You can also clone this with little cost, and pass it freely
 /// to other threads, as it manages itself under the hood with `Arc`.
 #[derive(Clone, Debug)]
-pub struct APIClient(Agent);
+pub struct APIClient {
+    agent: Agent,
+    endpoints: Arc<Endpoints>,
+}
 
 impl APIClient {
     /// Creates and initializes a new APIClient.
@@ -75,7 +99,21 @@ impl APIClient {
             .user_agent(&format!("SlippiDolphin (b: {_build}) (v: {slippi_semver}) (o: {os})"))
             .build();
 
-        Self(http_client)
+        Self {
+            agent: http_client,
+            endpoints: Arc::new(Endpoints::default()),
+        }
+    }
+
+    /// Points this client at other servers.
+    pub fn with_endpoints(mut self, endpoints: Endpoints) -> Self {
+        self.endpoints = Arc::new(endpoints);
+        self
+    }
+
+    /// The servers this client talks to.
+    pub fn endpoints(&self) -> &Endpoints {
+        &self.endpoints
     }
 
     /// Returns a type that can be used to construct GraphQL requests.
@@ -91,12 +129,12 @@ impl Deref for APIClient {
     type Target = Agent;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.agent
     }
 }
 
 impl DerefMut for APIClient {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.agent
     }
 }

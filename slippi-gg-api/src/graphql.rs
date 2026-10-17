@@ -54,9 +54,11 @@ impl GraphQLBuilder {
         let mut body = HashMap::new();
         body.insert("query", Value::String(query));
 
+        let endpoint = Cow::Owned(client.endpoints().graphql.clone());
+
         Self {
             client,
-            endpoint: Cow::Borrowed("https://internal.slippi.gg/graphql"),
+            endpoint,
             response_field: None,
             body,
             request_timeout: super::default_timeout(),

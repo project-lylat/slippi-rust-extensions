@@ -20,8 +20,6 @@ use rank_fetcher::{RankFetcher, RankFetcherStatus, SlippiRank};
 mod watcher;
 use watcher::UserInfoWatcher;
 
-const USER_API_URL: &'static str = "https://users-rest-dot-slippi.uc.r.appspot.com/user";
-
 /// The core payload that represents user information. This type is expected to conform
 /// to the same definition that the remote server uses.
 #[derive(Debug, Default, serde::Deserialize)]
@@ -409,7 +407,8 @@ fn overwrite_from_server(
     };
 
     // @TODO: Switch this to a GraphQL call? Likely a Fizzi/Nikki task.
-    let url = format!("{USER_API_URL}{is_beta}/{uid}?additionalFields=chatMessages,rank");
+    let user_api_url = &api_client.endpoints().user_rest;
+    let url = format!("{user_api_url}{is_beta}/{uid}?additionalFields=chatMessages,rank");
 
     tracing::info!(target: Log::SlippiOnline, "Fetching user info");
 
