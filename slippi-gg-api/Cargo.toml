@@ -1,0 +1,26 @@
+[package]
+name = "slippi-gg-api"
+description = "slippi.gg API client for internal calls."
+version = "0.1.0"
+authors = [
+    "Slippi Team",
+    "Ryan McGrath <ryan@rymc.io>"
+]
+repository = ""
+edition = "2024"
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+ureq = { workspace = true }
+
+dolphin-integrations = { path = "../dolphin" }
+
+[features]
+default = ["ishiiruka"]
+ishiiruka = []
+mainline = []
+playback = []

@@ -1,20 +1,20 @@
 use std::convert::TryInto;
 use std::fmt::Debug;
 use std::fs::File;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 use dolphin_integrations::{Color, Dolphin, Duration as OSDDuration, Log};
-use hps_decode::{Hps, PcmIterator};
-use rodio::{OutputStream, Sink};
+use hps_decode::Hps;
+use rodio::{OutputStreamBuilder, Sink};
 
 use crate::Message::*;
 
 mod errors;
-pub use errors::JukeboxError;
 use JukeboxError::*;
+pub use errors::JukeboxError;
 
 mod disc;
-use disc::{get_iso_kind, IsoKind};
+use disc::{IsoKind, get_iso_kind};
 
 mod utils;
 use utils::copy_bytes_from_file;
@@ -32,6 +32,13 @@ pub enum Message {
     StopMusic,
     SetVolume(VolumeControl, u8),
     JukeboxDropped,
+}
+
+#[derive(Debug)]
+pub enum VolumeControl {
+    Melee,
+    DolphinSystem,
+    DolphinMusic,
 }
 
 #[derive(Debug)]
@@ -85,8 +92,8 @@ impl Jukebox {
         initial_dolphin_system_volume: u8,
         initial_dolphin_music_volume: u8,
     ) -> Result<()> {
-        let (_stream, stream_handle) = OutputStream::try_default()?;
-        let sink = Sink::try_new(&stream_handle)?;
+        let stream_handle = OutputStreamBuilder::open_default_stream()?;
+        let sink = Sink::connect_new(&stream_handle.mixer());
 
         let mut iso = File::open(&iso_path)?;
         let get_real_offset = disc::create_offset_locator_fn(&mut iso)?;
@@ -94,6 +101,8 @@ impl Jukebox {
         let mut melee_music_volume = 1.0;
         let mut dolphin_system_volume = (initial_dolphin_system_volume as f32 / 100.0).clamp(0.0, 1.0);
         let mut dolphin_music_volume = (initial_dolphin_music_volume as f32 / 100.0).clamp(0.0, 1.0);
+
+        sink.set_volume(melee_music_volume * dolphin_system_volume * dolphin_music_volume * VOLUME_REDUCTION_MULTIPLIER);
 
         loop {
             match rx.recv()? {
@@ -123,10 +132,21 @@ impl Jukebox {
                     };
 
                     // Decode the Hps into audio
-                    let audio_source = HpsAudioSource(hps.into());
+                    let source = match hps.decode() {
+                        Ok(audio) => audio.into_rodio_source(),
+                        Err(e) => {
+                            tracing::error!(target: Log::Jukebox, error = ?e, "Failed to decode hps into audio. Cannot play song.");
+                            Dolphin::add_osd_message(
+                                Color::Red,
+                                OSDDuration::Normal,
+                                "Invalid music data found in ISO. This music will not play.",
+                            );
+                            continue;
+                        },
+                    };
 
                     // Play the song
-                    sink.append(audio_source);
+                    sink.append(source);
                     sink.play();
                 },
                 SetVolume(control, volume) => {
@@ -181,38 +201,5 @@ impl Drop for Jukebox {
                 "Failed to notify child thread that Jukebox is dropping: {e}"
             );
         }
-    }
-}
-
-#[derive(Debug)]
-pub enum VolumeControl {
-    Melee,
-    DolphinSystem,
-    DolphinMusic,
-}
-
-// This wrapper allows us to implement `rodio::Source`
-struct HpsAudioSource(PcmIterator);
-
-impl Iterator for HpsAudioSource {
-    type Item = i16;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
-
-impl rodio::Source for HpsAudioSource {
-    fn current_frame_len(&self) -> Option<usize> {
-        None
-    }
-    fn channels(&self) -> u16 {
-        self.0.channel_count as u16
-    }
-    fn sample_rate(&self) -> u32 {
-        self.0.sample_rate
-    }
-    fn total_duration(&self) -> Option<std::time::Duration> {
-        None
     }
 }

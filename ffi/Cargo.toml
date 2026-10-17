@@ -7,14 +7,14 @@ authors = [
     "Ryan McGrath <ryan@rymc.io>"
 ]
 repository = ""
-edition = "2021"
+edition = "2024"
 publish = false
 
 [lib]
 crate-type = ["cdylib"]
 
 [build-dependencies]
-cbindgen = "0.24.3"
+cbindgen = "0.29.0"
 
 [features]
 default = ["ishiiruka"]
@@ -22,15 +22,25 @@ ishiiruka = [
     "dolphin-integrations/ishiiruka",
     "slippi-game-reporter/ishiiruka",
     "slippi-exi-device/ishiiruka",
-    "slippi-config/ishiiruka",
+    "slippi-user/ishiiruka"
 ]
-mainline = []
-playback = []
+mainline = [
+    "dolphin-integrations/mainline",
+    "slippi-game-reporter/mainline",
+    "slippi-exi-device/mainline",
+    "slippi-user/mainline"
+]
+playback = [
+    "dolphin-integrations/playback",
+    "slippi-game-reporter/playback",
+    "slippi-exi-device/playback",
+    "slippi-user/playback"
+]
 
 [dependencies]
 dolphin-integrations = { path = "../dolphin" }
 slippi-game-reporter = { path = "../game-reporter" }
 slippi-exi-device = { path = "../exi" }
-slippi-config = { path = "../config" }
 slippi-jukebox = { path = "../jukebox" }
+slippi-user = { path = "../user" }
 tracing = { workspace = true }

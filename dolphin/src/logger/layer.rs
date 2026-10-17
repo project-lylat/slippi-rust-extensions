@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 use tracing::{Level, Metadata};
 use tracing_subscriber::Layer;
 
-use super::{ForeignLoggerFn, Log, LOG_CONTAINERS};
+use super::{ForeignLoggerFn, LOG_CONTAINERS, Log};
 
 /// Corresponds to Dolphin's `LogTypes::LOG_LEVELS::LNOTICE` value.
 #[allow(dead_code)]
@@ -81,7 +81,7 @@ where
         // into the dependencies container. This also allows us to grab any logs that *aren't*
         // tagged that may be of interest (i.e, from dependencies - hence the container name).
         if log_container.is_none() {
-            log_container = reader.iter().find(|container| container.kind == Log::DEPENDENCIES);
+            log_container = reader.iter().find(|container| container.kind == Log::Dependencies);
         }
 
         if log_container.is_none() {

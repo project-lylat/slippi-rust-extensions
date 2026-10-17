@@ -1,22 +1,22 @@
 //! This module implements the background queue for the Game Reporter.
 
 use std::collections::VecDeque;
+use std::io::Write;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use serde_json::json;
 
 use dolphin_integrations::{Color, Dolphin, Duration as OSDDuration, Log};
+use slippi_gg_api::{APIClient, GraphQLError};
 
+use crate::IsoMd5CheckState;
 use crate::types::{GameReport, GameReportRequestPayload, OnlinePlayMode};
-use crate::{CompletionEvent, ProcessingEvent};
-
-use flate2::write::GzEncoder;
-use flate2::Compression;
-use std::io::Write;
-use slippi_config::SlippiConfig;
+use crate::{ProcessingEvent, StatusReportEvent};
 
 /// How many times a report should attempt to send.
 const MAX_REPORT_ATTEMPTS: i32 = 5;
@@ -38,24 +38,17 @@ struct ReportResponse {
 /// of data around various threads.
 #[derive(Clone, Debug)]
 pub struct GameReporterQueue {
-    pub http_client: ureq::Agent,
-    pub iso_hash: Arc<Mutex<String>>,
+    pub api_client: APIClient,
+    pub iso_md5_check_state: Arc<Mutex<IsoMd5CheckState>>,
     inner: Arc<Mutex<VecDeque<GameReport>>>,
 }
 
 impl GameReporterQueue {
     /// Initializes and returns a new game reporter.
-    pub(crate) fn new() -> Self {
-        // We set `max_idle_connections` to `5` to mimic how CURL was configured in
-        // the old C++ version of this module.
-        let http_client = ureq::AgentBuilder::new()
-            .max_idle_connections(5)
-            .user_agent("SlippiGameReporter/Rust v0.1")
-            .build();
-
+    pub(crate) fn new(api_client: APIClient) -> Self {
         Self {
-            http_client,
-            iso_hash: Arc::new(Mutex::new(String::new())),
+            api_client,
+            iso_md5_check_state: Arc::new(Mutex::new(IsoMd5CheckState::default())),
             inner: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
@@ -71,57 +64,27 @@ impl GameReporterQueue {
 
             Err(error) => {
                 // This should never happen.
-                tracing::error!(target: Log::GameReporter, ?error, "Unable to lock queue, dropping report");
+                tracing::error!(target: Log::SlippiOnline, ?error, "Unable to lock queue, dropping report");
             },
-        }
-    }
-
-    /// Report an abandoned match.
-    ///
-    /// This doesn't necessarily need to be here, but it's easier to grok the codebase
-    /// if we keep all reporting network calls in one module.
-    pub fn report_abandonment(&self, uid: String, play_key: String, match_id: String) {
-        let mutation = r#"
-            mutation ($report: OnlineGameAbandonInput!) {
-                abandonOnlineGame (report: $report)
-            }
-        "#;
-
-        let variables = Some(json!({
-            "report": {
-                "matchId": match_id,
-                "fbUid": uid,
-                "playKey": play_key,
-            }
-        }));
-
-        let res = execute_graphql_query(&self.http_client, mutation, variables, Some("abandonOnlineGame"));
-
-        match res {
-            Ok(value) if value == "true" => {
-                tracing::info!(target: Log::GameReporter, "Successfully executed abandonment request")
-            },
-            Ok(value) => tracing::error!(target: Log::GameReporter, ?value, "Error executing abandonment request",),
-            Err(error) => tracing::error!(target: Log::GameReporter, ?error, "Error executing abandonment request"),
         }
     }
 }
 
-pub(crate) fn run_completion(http_client: ureq::Agent, receiver: Receiver<CompletionEvent>) {
+pub(crate) fn run_report_match_status(api_client: APIClient, receiver: Receiver<StatusReportEvent>) {
     loop {
         // Watch for notification to do work
         match receiver.recv() {
-            Ok(CompletionEvent::ReportAvailable {
+            Ok(StatusReportEvent::ReportAvailable {
                 uid,
                 play_key,
                 match_id,
-                end_mode,
+                status,
             }) => {
-                report_completion(&http_client, uid, match_id, play_key, end_mode);
+                report_match_status(&api_client, uid, match_id, play_key, status);
             },
 
-            Ok(CompletionEvent::Shutdown) => {
-                tracing::info!(target: Log::GameReporter, "Completion thread winding down");
+            Ok(StatusReportEvent::Shutdown) => {
+                tracing::info!(target: Log::SlippiOnline, "Status report thread winding down");
                 break;
             },
 
@@ -130,9 +93,9 @@ pub(crate) fn run_completion(http_client: ureq::Agent, receiver: Receiver<Comple
             // for the hell of it in case anyone's tweaking the logic.
             Err(error) => {
                 tracing::error!(
-                    target: Log::GameReporter,
+                    target: Log::SlippiOnline,
                     ?error,
-                    "Failed to receive CompletionEvent, thread will exit"
+                    "Failed to receive StatusReportEvent, thread will exit"
                 );
 
                 break;
@@ -141,34 +104,37 @@ pub(crate) fn run_completion(http_client: ureq::Agent, receiver: Receiver<Comple
     }
 }
 
-/// Report a completed match.
+/// Report a match status update.
 ///
 /// This doesn't necessarily need to be here, but it's easier to grok the codebase
 /// if we keep all reporting network calls in one module.
-pub fn report_completion(http_client: &ureq::Agent, uid: String, match_id: String, play_key: String, end_mode: u8) {
+pub fn report_match_status(api_client: &APIClient, uid: String, match_id: String, play_key: String, status: String) {
     let mutation = r#"
-        mutation ($report: OnlineGameCompleteInput!) {
-            completeOnlineGame (report: $report)
+        mutation ($report: OnlineMatchStatusReportInput!) {
+            reportOnlineMatchStatus (report: $report)
         }
     "#;
 
-    let variables = Some(json!({
+    let variables = json!({
         "report": {
             "matchId": match_id,
             "fbUid": uid,
             "playKey": play_key,
-            "endMode": end_mode,
+            "status": status,
         }
-    }));
+    });
 
-    let res = execute_graphql_query(http_client, mutation, variables, Some("completeOnlineGame"));
-
-    match res {
-        Ok(value) if value == "true" => {
-            tracing::info!(target: Log::GameReporter, "Successfully executed completion request")
+    match api_client
+        .graphql(mutation)
+        .variables(variables)
+        .data_field("/data/reportOnlineMatchStatus")
+        .send::<bool>()
+    {
+        Ok(value) if value => {
+            tracing::info!(target: Log::SlippiOnline, "Successfully executed status report request: {status}")
         },
-        Ok(value) => tracing::error!(target: Log::GameReporter, ?value, "Error executing completion request",),
-        Err(error) => tracing::error!(target: Log::GameReporter, ?error, "Error executing completion request"),
+        Ok(value) => tracing::error!(target: Log::SlippiOnline, ?value, "Error executing status report request: {status}"),
+        Err(error) => tracing::error!(target: Log::SlippiOnline, ?error, "Error executing status report request: {status}"),
     }
 }
 
@@ -182,7 +148,7 @@ pub(crate) fn run(reporter: GameReporterQueue, receiver: Receiver<ProcessingEven
             },
 
             Ok(ProcessingEvent::Shutdown) => {
-                tracing::info!(target: Log::GameReporter, "Processing thread winding down");
+                tracing::info!(target: Log::SlippiOnline, "Processing thread winding down");
 
                 process_reports(&reporter, ProcessingEvent::Shutdown);
 
@@ -194,7 +160,7 @@ pub(crate) fn run(reporter: GameReporterQueue, receiver: Receiver<ProcessingEven
             // for the hell of it in case anyone's tweaking the logic.
             Err(error) => {
                 tracing::error!(
-                    target: Log::GameReporter,
+                    target: Log::SlippiOnline,
                     ?error,
                     "Failed to receive ProcessingEvent, thread will exit"
                 );
@@ -207,13 +173,20 @@ pub(crate) fn run(reporter: GameReporterQueue, receiver: Receiver<ProcessingEven
 
 /// Process jobs from the queue.
 fn process_reports(queue: &GameReporterQueue, event: ProcessingEvent) {
-    let Ok(iso_hash) = queue.iso_hash.lock() else {
-        tracing::warn!(target: Log::GameReporter, "No ISO_HASH available");
-        return;
+    let iso_hash = match queue.iso_md5_check_state.lock() {
+        Ok(iso_md5_check_state) => iso_md5_check_state.iso_hash().unwrap_or_default().to_string(),
+        Err(error) => {
+            tracing::warn!(
+                target: Log::SlippiOnline,
+                ?error,
+                "Unable to lock iso_md5_check_state while processing reports"
+            );
+            String::new()
+        },
     };
 
     let Ok(mut report_queue) = queue.inner.lock() else {
-        tracing::warn!(target: Log::GameReporter, "Reporter Queue is dead");
+        tracing::warn!(target: Log::SlippiOnline, "Reporter Queue is dead");
         return;
     };
 
@@ -223,16 +196,16 @@ fn process_reports(queue: &GameReporterQueue, event: ProcessingEvent) {
         // (e.g, max attempts). We pass the locked queue over to work with the borrow checker
         // here, since otherwise we can't pop without some ugly block work to coerce letting
         // a mutable borrow drop.
-        match try_send_next_report(&mut *report_queue, event, &queue.http_client, &iso_hash) {
+        match try_send_next_report(&mut *report_queue, event, &queue.api_client, &iso_hash) {
             Ok(upload_url) => {
                 // Pop the front of the queue. If we have a URL, chuck it all over
                 // to the replay uploader.
                 let report = report_queue.pop_front();
 
-                tracing::info!(target: Log::GameReporter, "Successfully sent report, popping from queue");
+                tracing::info!(target: Log::SlippiOnline, "Successfully sent report, popping from queue");
 
                 if let (Some(report), Some(upload_url)) = (report, upload_url) {
-                    try_upload_replay_data(report.replay_data, upload_url, &queue.http_client);
+                    try_upload_replay_data(report.replay_data, upload_url, &queue.api_client);
                 }
 
                 thread::sleep(Duration::ZERO)
@@ -240,14 +213,14 @@ fn process_reports(queue: &GameReporterQueue, event: ProcessingEvent) {
 
             Err(error) => {
                 tracing::error!(
-                    target: Log::GameReporter,
+                    target: Log::SlippiOnline,
                     error = ?error.kind,
                     backoff = ?error.sleep_ms,
                     "Failed to send report"
                 );
 
                 if error.is_last_attempt {
-                    tracing::error!(target: Log::GameReporter, "Hit max retry limit, dropping report");
+                    tracing::error!(target: Log::SlippiOnline, "Hit max retry limit, dropping report");
                     let report = report_queue.pop_front(); // Remove the report so it no longer gets processed
 
                     // Tell player their report failed to send
@@ -269,12 +242,16 @@ fn process_reports(queue: &GameReporterQueue, event: ProcessingEvent) {
 }
 
 /// The true inner error, minus any metadata.
+/// the compiler thinks the fields are unused, but they're not.
+/// debug impls will render them over the Dolphin logging interface
+/// and the compiler just doesn't see that.
 #[derive(Debug)]
 enum ReportSendErrorKind {
-    Net(ureq::Error),
-    JSON(serde_json::Error),
-    GraphQL(String),
-    NotSuccessful(String),
+    #[allow(dead_code)]
+    GraphQL(GraphQLError),
+
+    #[allow(dead_code)]
+    NotSuccessful,
 }
 
 /// Wraps errors that can occur during report sending.
@@ -292,7 +269,7 @@ struct ReportSendError {
 fn try_send_next_report(
     queue: &mut VecDeque<GameReport>,
     event: ProcessingEvent,
-    http_client: &ureq::Agent,
+    api_client: &APIClient,
     iso_hash: &str,
 ) -> Result<Option<String>, ReportSendError> {
     let report = (*queue).front_mut().expect("Reporter queue is empty yet it shouldn't be");
@@ -323,86 +300,30 @@ fn try_send_next_report(
         }
     "#;
 
-    let variables = Some(json!({
+    let variables = json!({
         "report": payload,
-    }));
+    });
 
-    // Call execute_graphql_query and get the response body as a String.
-    let response_body =
-        execute_graphql_query(http_client, mutation, variables, Some("reportOnlineGame")).map_err(|e| ReportSendError {
+    let response: ReportResponse = api_client
+        .graphql(mutation)
+        .variables(variables)
+        .data_field("/data/reportOnlineGame")
+        .send()
+        .map_err(|error| ReportSendError {
             is_last_attempt,
             sleep_ms: error_sleep_ms,
-            kind: e,
+            kind: ReportSendErrorKind::GraphQL(error),
         })?;
-
-    // Now, parse the response JSON to get the data you need.
-    let response: ReportResponse = serde_json::from_str(&response_body).map_err(|e| ReportSendError {
-        is_last_attempt,
-        sleep_ms: error_sleep_ms,
-        kind: ReportSendErrorKind::JSON(e),
-    })?;
 
     if !response.success {
         return Err(ReportSendError {
             is_last_attempt,
             sleep_ms: error_sleep_ms,
-            kind: ReportSendErrorKind::NotSuccessful(response_body),
+            kind: ReportSendErrorKind::NotSuccessful,
         });
     }
 
     Ok(response.upload_url)
-}
-
-/// Prepares and executes a GraphQL query.
-fn execute_graphql_query(
-    http_client: &ureq::Agent,
-    query: &str,
-    variables: Option<Value>,
-    field: Option<&str>,
-) -> Result<String, ReportSendErrorKind> {
-    // Prepare the GraphQL request payload
-    let request_body = match variables {
-        Some(vars) => json!({
-            "query": query,
-            "variables": vars,
-        }),
-        None => json!({
-            "query": query,
-        }),
-    };
-
-    let url = SlippiConfig::get().graphql_url.unwrap();
-
-    // Make the GraphQL request
-    let response = http_client
-        .post(url.as_str())
-        .send_json(&request_body)
-        .map_err(ReportSendErrorKind::Net)?;
-
-    // Parse the response JSON
-    let response_json: Value =
-        serde_json::from_str(&response.into_string().unwrap_or_default()).map_err(ReportSendErrorKind::JSON)?;
-
-    // Check for GraphQL errors
-    if let Some(errors) = response_json.get("errors") {
-        if errors.is_array() && !errors.as_array().unwrap().is_empty() {
-            let error_message = serde_json::to_string_pretty(errors).unwrap();
-            return Err(ReportSendErrorKind::GraphQL(error_message));
-        }
-    }
-
-    // Return the data response
-    if let Some(data) = response_json.get("data") {
-        let result = match field {
-            Some(field) => data.get(field).unwrap_or(data),
-            None => data,
-        };
-        Ok(result.to_string())
-    } else {
-        Err(ReportSendErrorKind::GraphQL(
-            "No 'data' field in the GraphQL response.".to_string(),
-        ))
-    }
 }
 
 /// Gzip compresses `input` data to `output` data.
@@ -415,33 +336,42 @@ fn compress_to_gzip(input: &[u8], output: &mut [u8]) -> Result<usize, std::io::E
     Ok(res.len())
 }
 
-/// Attempts to compress and upload replay data to the url at `upload_url`.
-fn try_upload_replay_data(data: Vec<u8>, upload_url: String, http_client: &ureq::Agent) {
-    let raw_data_size = data.len() as u32;
-    let rdbs = raw_data_size.to_le_bytes();
+fn add_slp_header_and_footer(data: Arc<Mutex<Vec<u8>>>) -> Vec<u8> {
+    let guard = data.lock().unwrap();
+    let raw_data_size = guard.len();
+    let data_size_bytes = (raw_data_size as u32).to_be_bytes();
+
+    let header = [b'{', b'U', 3, b'r', b'a', b'w', b'[', b'$', b'U', b'#', b'l'];
+    let footer = [b'U', 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a', b'{', b'}', b'}'];
 
     // Add header and footer to replay file
-    let mut contents = vec![
-        b'{', b'U', 3, b'r', b'a', b'w', b'[', b'$', b'U', b'#', b'l', rdbs[3], rdbs[2], rdbs[1], rdbs[0],
-    ];
-    contents.extend_from_slice(&data);
-    let mut footer = vec![b'U', 8, b'm', b'e', b't', b'a', b'd', b'a', b't', b'a', b'{', b'}', b'}'];
-    contents.append(&mut footer);
+    header
+        .iter()
+        .chain(data_size_bytes.iter())
+        .chain(guard.iter())
+        .chain(footer.iter())
+        .cloned()
+        .collect()
+}
 
-    let mut gzipped_data = vec![0u8; data.len()]; // Resize to some initial size
+/// Attempts to compress and upload replay data to the url at `upload_url`.
+fn try_upload_replay_data(data: Arc<Mutex<Vec<u8>>>, upload_url: String, api_client: &APIClient) {
+    let contents = add_slp_header_and_footer(data);
+
+    let mut gzipped_data = vec![0u8; contents.len()]; // Resize to some initial size
 
     let res_size = match compress_to_gzip(&contents, &mut gzipped_data) {
         Ok(size) => size,
 
         Err(error) => {
-            tracing::error!(target: Log::GameReporter, ?error, "Failed to compress replay");
+            tracing::error!(target: Log::SlippiOnline, ?error, "Failed to compress replay");
             return;
         },
     };
 
     gzipped_data.resize(res_size, 0);
 
-    let response = http_client
+    let response = api_client
         .put(upload_url.as_str())
         .set("Content-Type", "application/octet-stream")
         .set("Content-Encoding", "gzip")
@@ -449,6 +379,6 @@ fn try_upload_replay_data(data: Vec<u8>, upload_url: String, http_client: &ureq:
         .send_bytes(&gzipped_data);
 
     if let Err(error) = response {
-        tracing::error!(target: Log::GameReporter, ?error, "Failed to upload replay data",);
+        tracing::error!(target: Log::SlippiOnline, ?error, "Failed to upload replay data",);
     }
 }

@@ -3,21 +3,22 @@ name = "slippi-game-reporter"
 description = "Implements the game reporter service."
 authors = ["Slippi Team", "Ryan McGrath <ryan@rymc.io>"]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [features]
 default = []
 ishiiruka = []
 mainline = []
+playback = []
 
 [dependencies]
-chksum = { version = "0.2.2", default-features = false, features = ["md5"] }
+chksum = { version = "0.4.0", default-features = false, features = ["md5"] }
 dolphin-integrations = { path = "../dolphin" }
-slippi-config = { path = "../config" }
 flate2 = "1.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
+slippi-gg-api = { path = "../slippi-gg-api" }
+slippi-user = { path = "../user" }
 tracing = { workspace = true }
-ureq = { workspace = true }

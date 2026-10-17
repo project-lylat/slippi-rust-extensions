@@ -1,42 +1,96 @@
-use std::ffi::c_char;
+use std::ffi::{c_char, c_int};
 
 use dolphin_integrations::Log;
-use slippi_exi_device::{JukeboxConfiguration, SlippiEXIDevice};
+use slippi_exi_device::{Config, FilePathsConfig, JukeboxConfiguration, SCMConfig, SlippiEXIDevice};
 use slippi_game_reporter::GameReport;
+use slippi_game_reporter::{IsoMd5CheckResult, IsoMd5CheckState};
 
-use crate::c_str_to_string;
+use crate::{c_str_to_string, with_returning};
 
-/// Creates and leaks a shadow EXI device.
+/// ISO MD5 status and final outcome that we vend back over FFI.
+#[repr(C)]
+pub struct RustIsoMd5Check {
+    /// 0 = NotStarted, 1 = InProgress, 2 = Complete
+    pub status: c_int,
+
+    /// 0 = Unknown, 1 = SafeIso, 2 = KnownDesyncIso, 3 = Failed
+    pub result: c_int,
+}
+
+/// A configuration struct for passing over certain argument types from the C/C++ side.
+///
+/// The number of arguments necessary to shuttle across the FFI boundary when starting the
+/// EXI device is higher than ideal at the moment, though it should lessen with time. For now,
+/// this struct exists to act as a slightly more sane approach to readability of the args
+/// structure.
+#[repr(C)]
+pub struct SlippiRustEXIConfig {
+    // Paths
+    pub iso_path: *const c_char,
+    pub user_config_folder: *const c_char,
+
+    // Git version number
+    pub scm_slippi_semver_str: *const c_char,
+
+    // We don't currently need the below, but they're stubbed in case anyone ends up
+    // needing to add 'em.
+    //
+    // pub scm_desc_str: *const c_char,
+    // pub scm_branch_str: *const c_char,
+    // pub scm_rev_str: *const c_char,
+    // pub scm_rev_git_str: *const c_char,
+    // pub scm_rev_cache_str: *const c_char,
+    // pub netplay_dolphin_ver: *const c_char,
+    // pub scm_distributor_str: *const c_char,
+
+    // Hooks
+    pub osd_add_msg_fn: unsafe extern "C" fn(*const c_char, u32, u32),
+}
+
+/// Creates and leaks a shadow EXI device with the provided configuration.
 ///
 /// The C++ (Dolphin) side of things should call this and pass the appropriate arguments. At
 /// that point, everything on the Rust side is its own universe, and should be told to shut
 /// down (at whatever point) via the corresponding `slprs_exi_device_destroy` function.
 ///
 /// The returned pointer from this should *not* be used after calling `slprs_exi_device_destroy`.
-#[no_mangle]
-pub extern "C" fn slprs_exi_device_create(
-    iso_path: *const c_char,
-    osd_add_msg_fn: unsafe extern "C" fn(*const c_char, u32, u32),
-) -> usize {
+#[unsafe(no_mangle)]
+pub extern "C" fn slprs_exi_device_create(config: SlippiRustEXIConfig) -> usize {
+    dolphin_integrations::ffi::osd::set_global_hook(config.osd_add_msg_fn);
+
     let fn_name = "slprs_exi_device_create";
 
-    let iso_path = c_str_to_string(iso_path, fn_name, "iso_path");
+    let exi_device = Box::new(SlippiEXIDevice::new(Config {
+        paths: FilePathsConfig {
+            iso: c_str_to_string(config.iso_path, fn_name, "iso_path"),
+            user_config_folder: c_str_to_string(config.user_config_folder, fn_name, "user_config_folder"),
+        },
 
-    dolphin_integrations::ffi::osd::set_global_hook(osd_add_msg_fn);
+        scm: SCMConfig {
+            slippi_semver: c_str_to_string(config.scm_slippi_semver_str, fn_name, "slippi_semver"),
+        },
+    }));
 
-    let exi_device = Box::new(SlippiEXIDevice::new(iso_path));
     let exi_device_instance_ptr = Box::into_raw(exi_device) as usize;
 
-    tracing::warn!(target: Log::EXI, ptr = exi_device_instance_ptr, "Creating Device");
+    tracing::warn!(
+        target: Log::SlippiOnline,
+        ptr = exi_device_instance_ptr,
+        "Initialized Rust EXI Device"
+    );
 
     exi_device_instance_ptr
 }
 
 /// The C++ (Dolphin) side of things should call this to notify the Rust side that it
 /// can safely shut down and clean up.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_destroy(exi_device_instance_ptr: usize) {
-    tracing::warn!(target: Log::EXI, ptr = exi_device_instance_ptr, "Destroying Device");
+    tracing::warn!(
+        target: Log::SlippiOnline,
+        ptr = exi_device_instance_ptr,
+        "Destroying Rust EXI Device"
+    );
 
     // Coerce the instance from the pointer. This is theoretically safe since we control
     // the C++ side and can guarantee that the `exi_device_instance_ptr` is only owned
@@ -51,7 +105,7 @@ pub extern "C" fn slprs_exi_device_destroy(exi_device_instance_ptr: usize) {
 /// the Dolphin side, corresponding to:
 ///
 /// `virtual void DMAWrite(u32 _uAddr, u32 _uSize);`
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_dma_write(exi_device_instance_ptr: usize, address: *const u8, size: *const u8) {
     // Coerce the instance back from the pointer. This is theoretically safe since we control
     // the C++ side and can guarantee that the `exi_device_instance_ptr` pointer is only owned
@@ -68,7 +122,7 @@ pub extern "C" fn slprs_exi_device_dma_write(exi_device_instance_ptr: usize, add
 /// the Dolphin side, corresponding to:
 ///
 /// `virtual void DMARead(u32 _uAddr, u32 _uSize);`
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_dma_read(exi_device_instance_ptr: usize, address: *const u8, size: *const u8) {
     // Coerce the instance from the pointer. This is theoretically safe since we control
     // the C++ side and can guarantee that the `exi_device_instance_ptr` pointer is only owned
@@ -86,7 +140,7 @@ pub extern "C" fn slprs_exi_device_dma_read(exi_device_instance_ptr: usize, addr
 /// will then add it to the processing pipeline.
 ///
 /// The reporter will manage the actual... reporting.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_log_game_report(instance_ptr: usize, game_report_instance_ptr: usize) {
     // Coerce the instances from the pointers. This is theoretically safe since we control
     // the C++ side and can guarantee that the pointers are only owned
@@ -105,7 +159,7 @@ pub extern "C" fn slprs_exi_device_log_game_report(instance_ptr: usize, game_rep
 }
 
 /// Calls through to `SlippiGameReporter::start_new_session`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_start_new_reporter_session(instance_ptr: usize) {
     // Coerce the instances from the pointers. This is theoretically safe since we control
     // the C++ side and can guarantee that the pointers are only owned
@@ -119,58 +173,31 @@ pub extern "C" fn slprs_exi_device_start_new_reporter_session(instance_ptr: usiz
 }
 
 /// Calls through to the `SlippiGameReporter` on the EXI device to report a
-/// match completion event.
-#[no_mangle]
-pub extern "C" fn slprs_exi_device_report_match_completion(
+/// match status update event.
+#[unsafe(no_mangle)]
+pub extern "C" fn slprs_exi_device_report_match_status(
     instance_ptr: usize,
-    uid: *const c_char,
-    play_key: *const c_char,
     match_id: *const c_char,
-    end_mode: u8,
+    status: *const c_char,
+    background: bool,
 ) {
     // Coerce the instances from the pointers. This is theoretically safe since we control
     // the C++ side and can guarantee that the pointers are only owned
     // by us, and are created/destroyed with the corresponding lifetimes.
     let device = unsafe { Box::from_raw(instance_ptr as *mut SlippiEXIDevice) };
 
-    let fn_name = "slprs_exi_device_report_match_completion";
-    let uid = c_str_to_string(uid, fn_name, "uid");
-    let play_key = c_str_to_string(play_key, fn_name, "play_key");
+    let fn_name = "slprs_exi_device_report_match_status";
     let match_id = c_str_to_string(match_id, fn_name, "match_id");
+    let status = c_str_to_string(status, fn_name, "status");
 
-    device.game_reporter.report_completion(uid, play_key, match_id, end_mode);
-
-    // Fall back into a raw pointer so Rust doesn't obliterate the object.
-    let _leak = Box::into_raw(device);
-}
-
-/// Calls through to the `SlippiGameReporter` on the EXI device to report a
-/// match abandon event.
-#[no_mangle]
-pub extern "C" fn slprs_exi_device_report_match_abandonment(
-    instance_ptr: usize,
-    uid: *const c_char,
-    play_key: *const c_char,
-    match_id: *const c_char,
-) {
-    // Coerce the instances from the pointers. This is theoretically safe since we control
-    // the C++ side and can guarantee that the pointers are only owned
-    // by us, and are created/destroyed with the corresponding lifetimes.
-    let device = unsafe { Box::from_raw(instance_ptr as *mut SlippiEXIDevice) };
-
-    let fn_name = "slprs_exi_device_report_match_abandonment";
-    let uid = c_str_to_string(uid, fn_name, "uid");
-    let play_key = c_str_to_string(play_key, fn_name, "play_key");
-    let match_id = c_str_to_string(match_id, fn_name, "match_id");
-
-    device.game_reporter.report_abandonment(uid, play_key, match_id);
+    device.game_reporter.report_match_status(match_id, status, background);
 
     // Fall back into a raw pointer so Rust doesn't obliterate the object.
     let _leak = Box::into_raw(device);
 }
 
 /// Calls through to `SlippiGameReporter::push_replay_data`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_reporter_push_replay_data(instance_ptr: usize, data: *const u8, length: u32) {
     // Convert our pointer to a Rust slice so that the game reporter
     // doesn't need to deal with anything C-ish.
@@ -187,10 +214,31 @@ pub extern "C" fn slprs_exi_device_reporter_push_replay_data(instance_ptr: usize
     let _leak = Box::into_raw(device);
 }
 
+/// Gets the status and result of the background ISO MD5 check.
+#[unsafe(no_mangle)]
+pub extern "C" fn slprs_get_iso_md5_check(exi_device_instance_ptr: usize) -> RustIsoMd5Check {
+    with_returning::<SlippiEXIDevice, _, _>(exi_device_instance_ptr, |device| {
+        let state = device.game_reporter.iso_md5_check_state();
+
+        match state {
+            IsoMd5CheckState::NotStarted => RustIsoMd5Check { status: 0, result: 0 },
+            IsoMd5CheckState::InProgress => RustIsoMd5Check { status: 1, result: 0 },
+            IsoMd5CheckState::Complete(result) => RustIsoMd5Check {
+                status: 2,
+                result: match result {
+                    IsoMd5CheckResult::SafeIso { .. } => 1,
+                    IsoMd5CheckResult::KnownDesyncIso { .. } => 2,
+                    IsoMd5CheckResult::Failed => 3,
+                },
+            },
+        }
+    })
+}
+
 /// Configures the Jukebox process. This needs to be called after the EXI device is created
 /// in order for certain pieces of Dolphin to be properly initalized; this may change down
 /// the road though and is not set in stone.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_configure_jukebox(
     exi_device_instance_ptr: usize,
     is_enabled: bool,

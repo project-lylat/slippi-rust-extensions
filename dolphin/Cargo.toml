@@ -6,13 +6,14 @@ authors = [
     "Slippi Team",
     "Ryan McGrath <ryan@rymc.io>"
 ]
-edition = "2021"
+edition = "2024"
 publish = false
 
 [features]
 default = []
 ishiiruka = []
 mainline = []
+playback = []
 
 [dependencies]
 time = { workspace = true }

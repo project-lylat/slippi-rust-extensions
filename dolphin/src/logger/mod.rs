@@ -7,14 +7,14 @@
 //!
 //! Ultimately this should mean no log fragmentation or confusion.
 
-use std::ffi::{c_char, c_int, CStr};
+use std::ffi::{CStr, c_char, c_int};
 use std::sync::{Arc, Once, OnceLock, RwLock};
 
 use tracing::Level;
 use tracing_subscriber::prelude::*;
 
 mod layer;
-use layer::{convert_dolphin_log_level_to_tracing_level, DolphinLoggerLayer};
+use layer::{DolphinLoggerLayer, convert_dolphin_log_level_to_tracing_level};
 
 /// A type that mirrors a function over on the C++ side; because the library exists as
 /// a dylib, it can't depend on any functions from the host application - but we _can_
@@ -44,13 +44,12 @@ pub mod Log {
     /// Used for dumping logs from dependencies that we may need to inspect.
     /// This may also get logs that are not properly tagged! If that happens, you need
     /// to fix your logging calls. :)
-    pub const DEPENDENCIES: &'static str = "SLIPPI_RUST_DEPENDENCIES";
+    pub const Dependencies: &'static str = "SLIPPI_RUST_DEPENDENCIES";
 
-    /// The default target for EXI tracing.
-    pub const EXI: &'static str = "SLIPPI_RUST_EXI";
-
-    /// Logs for `SlippiGameReporter`.
-    pub const GameReporter: &'static str = "SLIPPI_RUST_GAME_REPORTER";
+    /// The general log that most core Slippi Rust tracing calls should target.
+    ///
+    /// Some things may need other logs (e.g, the Jukebox due to audio logs).
+    pub const SlippiOnline: &'static str = "SLIPPI_RUST_ONLINE";
 
     /// Can be used to segment Jukebox logs.
     pub const Jukebox: &'static str = "SLIPPI_RUST_JUKEBOX";
@@ -87,7 +86,9 @@ pub fn init(logger_fn: ForeignLoggerFn) {
     // know if something else, somehow, registered before us.
     LOGGER.call_once(|| {
         // We do this so that full backtrace's are emitted on any crashes.
-        std::env::set_var("RUST_BACKTRACE", "full");
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "full");
+        }
 
         tracing_subscriber::registry().with(DolphinLoggerLayer::new(logger_fn)).init();
     });

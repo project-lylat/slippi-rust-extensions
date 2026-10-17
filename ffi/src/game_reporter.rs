@@ -1,8 +1,11 @@
 use std::ffi::c_char;
 
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use slippi_game_reporter::{GameReport, OnlinePlayMode as ReporterOnlinePlayMode, PlayerReport};
 
-use crate::{c_str_to_string, set};
+use crate::{c_str_to_string, with};
 
 /// This enum is duplicated from `slippi_game_reporter::OnlinePlayMode` in order
 /// to appease cbindgen, which cannot see the type from the other module for
@@ -22,7 +25,7 @@ pub enum SlippiMatchmakingOnlinePlayMode {
 /// Creates a new Player Report and leaks it, returning the pointer.
 ///
 /// This should be passed on to a GameReport for processing.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_player_report_create(
     uid: *const c_char,
     slot_type: u8,
@@ -56,7 +59,7 @@ pub extern "C" fn slprs_player_report_create(
 ///
 /// This is expected to ultimately be passed to the game reporter, which will handle
 /// destruction and cleanup.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_game_report_create(
     uid: *const c_char,
     play_key: *const c_char,
@@ -96,7 +99,7 @@ pub extern "C" fn slprs_game_report_create(
         lras_initiator,
         stage_id,
         players: Vec::new(),
-        replay_data: Vec::new(),
+        replay_data: Arc::new(Mutex::new(Vec::new())),
     });
 
     let report_instance_ptr = Box::into_raw(report) as usize;
@@ -106,14 +109,14 @@ pub extern "C" fn slprs_game_report_create(
 
 /// Takes ownership of the `PlayerReport` at the specified pointer, adding it to the
 /// `GameReport` at the corresponding pointer.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn slprs_game_report_add_player_report(instance_ptr: usize, player_report_instance_ptr: usize) {
     // Coerce the instance from the pointer. This is theoretically safe since we control
     // the C++ side and can guarantee that the `game_report_instance_ptr` is only owned
     // by us, and is created/destroyed with the corresponding lifetimes.
     let player_report = unsafe { Box::from_raw(player_report_instance_ptr as *mut PlayerReport) };
 
-    set::<GameReport, _>(instance_ptr, move |report| {
+    with::<GameReport, _>(instance_ptr, move |report| {
         report.players.push(*player_report);
     });
 }

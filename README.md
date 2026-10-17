@@ -1,7 +1,7 @@
 # Slippi Rust Extensions
 This external module houses various Slippi-specific bits of functionality and is ultimately linked into the Dolphin executable and instrumented via the C FFI. This is an evolving workspace area and may be subject to changes.
 
-This workspace currently targets Rust `1.70.0`. As long as you have Rust installed, `cargo` should automatically configure this when building.
+This workspace currently targets Rust `1.88.0`. As long as you have Rust installed, `cargo` should automatically configure this when building.
 
 > You may opt to add other components (e.g `clippy`) as the toolchain file currently targets what the CI builders need.
 
@@ -12,14 +12,14 @@ This workspace currently targets Rust `1.70.0`. As long as you have Rust install
 
 ## Project Module Structure Overview
 
-| Module          | Description                                                                                   |
-|-----------------|-----------------------------------------------------------------------------------------------|
-| `config`        | Env/Feature based Constants and Config variables.                                             |
-| `dolphin`       | A library that wraps Dolphin callbacks (logging, etc).                                        |
-| `exi`           | EXI device that receives forwarded calls from the EXI (C++) device.                           |
-| `ffi`           | The core library. Exposes C FFI functions for Dolphin to call.                                |
-| `game-reporter` | Implements match and event reporting.                                                         |
-| `jukebox`       | Melee music player library. See the [Slippi Jukebox README](jukebox/README.md) for more info. |
+| Module                 | Description                                                                |
+|------------------------|----------------------------------------------------------------------------|
+| `dolphin`              | A library that wraps Dolphin callbacks (logging, etc).                     |
+| `exi`                  | EXI device that receives forwarded calls from the EXI (C++) device.        |
+| `ffi`                  | The core library. Exposes C FFI functions for Dolphin to call.             |
+| `game-reporter`        | Implements match and event reporting.                                      |
+| `jukebox`              | Melee music player library. See the [Slippi Jukebox README](jukebox/README.md) for more info. |
+| `user`                 | User authentication and management.                                        |
 
 Some important aspects of the project structure to understand:
 
