@@ -7,6 +7,7 @@ mod production;
 pub(crate) static _SLP_CFG: OnceLock<SlippiConfig> = OnceLock::new();
 
 /// Lylat service settings for one environment. `None` keeps Slippi's value for that setting.
+/// The Lylat matchmaking server and site are Lylat-only, so every environment sets them.
 #[derive(Clone, Debug)]
 pub struct SlippiConfig {
     /// GraphQL endpoint: game reports, match status and rank.
@@ -20,6 +21,13 @@ pub struct SlippiConfig {
 
     /// Page opened when the client needs an update.
     pub update_page_url: Option<String>,
+
+    /// The Lylat site, for the QR device sign-in (`/api/device/...`).
+    pub origin: Option<String>,
+
+    /// Lylat matchmaking server (ENet).
+    pub mm_host: Option<String>,
+    pub mm_port: Option<u16>,
 }
 
 impl SlippiConfig {
@@ -30,6 +38,9 @@ impl SlippiConfig {
             user_rest_url: other.user_rest_url.or(self.user_rest_url),
             login_page_url: other.login_page_url.or(self.login_page_url),
             update_page_url: other.update_page_url.or(self.update_page_url),
+            origin: other.origin.or(self.origin),
+            mm_host: other.mm_host.or(self.mm_host),
+            mm_port: other.mm_port.or(self.mm_port),
         }
     }
 
@@ -41,6 +52,9 @@ impl SlippiConfig {
             user_rest_url: env::var("SLIPPI_USER_REST_URL").ok(),
             login_page_url: env::var("SLIPPI_LOGIN_PAGE_URL").ok(),
             update_page_url: env::var("SLIPPI_UPDATE_PAGE_URL").ok(),
+            origin: env::var("SLIPPI_LYLAT_ORIGIN").ok(),
+            mm_host: env::var("SLIPPI_MM_HOST").ok(),
+            mm_port: env::var("SLIPPI_MM_PORT").ok().and_then(|port| port.parse().ok()),
         }
     }
 

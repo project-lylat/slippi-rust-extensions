@@ -306,6 +306,26 @@ void slprs_logging_update_container(const char *kind, bool enabled, int level);
 void slprs_mainline_logging_update_log_level(int level);
 
 /**
+ * The Lylat site, i.e: `https://lylat.gg`. Free it with `slprs_lylat_free_string`.
+ */
+char *slprs_lylat_origin(void);
+
+/**
+ * The Lylat matchmaking host, i.e: `lylat.gg`. Free it with `slprs_lylat_free_string`.
+ */
+char *slprs_lylat_mm_host(void);
+
+/**
+ * The Lylat matchmaking port, 0 when the environment has none.
+ */
+uint16_t slprs_lylat_mm_port(void);
+
+/**
+ * Frees a string returned by the `slprs_lylat_*` functions.
+ */
+void slprs_lylat_free_string(char *value);
+
+/**
  * Fetches the result of a recently played match via its ID.
  */
 void slprs_fetch_match_result(uintptr_t exi_device_instance_ptr, const char *match_id);
