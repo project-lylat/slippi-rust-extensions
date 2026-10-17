@@ -108,7 +108,7 @@ impl UserManager {
         });
 
         let user_json_path = Arc::new({
-            user_config_folder.push("user.json");
+            user_config_folder.push(&api_client.endpoints().account_file);
             user_config_folder
         });
 
@@ -211,7 +211,8 @@ impl UserManager {
         let path_ref = self.user_json_path.as_path();
 
         if let Some(path) = path_ref.to_str() {
-            let url = format!("https://slippi.gg/online/enable?path={path}");
+            let login_page = &self.api_client.endpoints().login_page;
+            let url = format!("{login_page}?path={path}");
 
             tracing::info!(target: Log::SlippiOnline, "[User] Login at path: {}", url);
 
@@ -228,7 +229,7 @@ impl UserManager {
     /// Pops open a browser window for the update URL. This is less encountered by users as time goes
     /// by, but still used.
     pub fn update_app(&self) -> bool {
-        if let Err(error) = open::that_detached("https://slippi.gg/downloads?update=true") {
+        if let Err(error) = open::that_detached(&self.api_client.endpoints().update_page) {
             tracing::error!(target: Log::SlippiOnline, ?error, "Failed to open update URL");
             return false;
         }

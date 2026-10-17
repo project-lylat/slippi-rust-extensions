@@ -1,0 +1,19 @@
+[package]
+name = "slippi-config"
+description = "Handles Slippi configuration constants"
+version = "0.1.0"
+authors = [
+    "Slippi Team",
+    "Robert Peralta <rapito@gmail.com>"
+]
+build = "build.rs"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+slippi_env_development = []
+slippi_env_production = []
+
+[dependencies]
+tracing = { workspace = true }

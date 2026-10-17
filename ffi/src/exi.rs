@@ -1,6 +1,7 @@
 use std::ffi::{c_char, c_int};
 
 use dolphin_integrations::Log;
+use slippi_config::SlippiConfig;
 use slippi_exi_device::{Config, Endpoints, FilePathsConfig, JukeboxConfiguration, SCMConfig, SlippiEXIDevice};
 use slippi_game_reporter::GameReport;
 use slippi_game_reporter::{IsoMd5CheckResult, IsoMd5CheckState};
@@ -59,26 +60,35 @@ pub extern "C" fn slprs_exi_device_create(config: SlippiRustEXIConfig) -> usize 
     create_exi_device(config, Endpoints::default(), "slprs_exi_device_create")
 }
 
-/// Lylat: `slprs_exi_device_create`, but talking to other servers. A null URL keeps Slippi's
-/// server for that endpoint. `user_rest_url` gets `[-beta]/{uid}?...` appended, like Slippi's.
+/// Lylat: `slprs_exi_device_create`, but talking to the Lylat servers of the environment this
+/// library was built for (`SLIPPI_ENV`, see the `slippi-config` crate), with the Lylat account
+/// file. The `SLIPPI_*` environment variables listed there override them when the game starts.
 #[unsafe(no_mangle)]
-pub extern "C" fn slprs_exi_device_create_with_endpoints(
-    config: SlippiRustEXIConfig,
-    graphql_url: *const c_char,
-    user_rest_url: *const c_char,
-) -> usize {
-    let fn_name = "slprs_exi_device_create_with_endpoints";
+pub extern "C" fn slprs_exi_device_create_lylat(config: SlippiRustEXIConfig) -> usize {
+    let lylat = SlippiConfig::get();
     let mut endpoints = Endpoints::default();
 
-    if !graphql_url.is_null() {
-        endpoints.graphql = c_str_to_string(graphql_url, fn_name, "graphql_url");
+    if let Some(graphql_url) = lylat.graphql_url {
+        endpoints.graphql = graphql_url;
     }
 
-    if !user_rest_url.is_null() {
-        endpoints.user_rest = c_str_to_string(user_rest_url, fn_name, "user_rest_url");
+    if let Some(user_rest_url) = lylat.user_rest_url {
+        endpoints.user_rest = user_rest_url;
     }
 
-    create_exi_device(config, endpoints, fn_name)
+    if let Some(login_page_url) = lylat.login_page_url {
+        endpoints.login_page = login_page_url;
+    }
+
+    if let Some(update_page_url) = lylat.update_page_url {
+        endpoints.update_page = update_page_url;
+    }
+
+    if let Some(account_file) = lylat.account_file {
+        endpoints.account_file = account_file;
+    }
+
+    create_exi_device(config, endpoints, "slprs_exi_device_create_lylat")
 }
 
 fn create_exi_device(config: SlippiRustEXIConfig, endpoints: Endpoints, fn_name: &str) -> usize {

@@ -1185,6 +1185,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "slippi-config"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "slippi-exi-device"
 version = "0.1.0"
 dependencies = [
@@ -1255,6 +1262,7 @@ version = "0.1.0"
 dependencies = [
  "cbindgen",
  "dolphin-integrations",
+ "slippi-config",
  "slippi-exi-device",
  "slippi-game-reporter",
  "slippi-jukebox",

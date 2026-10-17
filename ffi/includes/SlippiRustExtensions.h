@@ -112,12 +112,11 @@ extern "C" {
 uintptr_t slprs_exi_device_create(struct SlippiRustEXIConfig config);
 
 /**
- * Lylat: `slprs_exi_device_create`, but talking to other servers. A null URL keeps Slippi's
- * server for that endpoint. `user_rest_url` gets `[-beta]/{uid}?...` appended, like Slippi's.
+ * Lylat: `slprs_exi_device_create`, but talking to the Lylat servers of the environment this
+ * library was built for (`SLIPPI_ENV`, see the `slippi-config` crate), with the Lylat account
+ * file. The `SLIPPI_*` environment variables listed there override them when the game starts.
  */
-uintptr_t slprs_exi_device_create_with_endpoints(struct SlippiRustEXIConfig config,
-                                                 const char *graphql_url,
-                                                 const char *user_rest_url);
+uintptr_t slprs_exi_device_create_lylat(struct SlippiRustEXIConfig config);
 
 /**
  * The C++ (Dolphin) side of things should call this to notify the Rust side that it

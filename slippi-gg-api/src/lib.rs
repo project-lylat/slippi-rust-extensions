@@ -36,8 +36,8 @@ pub(crate) fn default_timeout() -> Duration {
     Duration::from_millis(5000)
 }
 
-/// The servers an `APIClient` talks to. The defaults are Slippi's; a fork can point a client
-/// at its own servers with `APIClient::with_endpoints`.
+/// The service an `APIClient` talks to: its servers, web pages and account file. The defaults
+/// are Slippi's; a fork can point a client at its own service with `APIClient::with_endpoints`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Endpoints {
     /// GraphQL endpoint (game reports, rank, match status).
@@ -45,6 +45,15 @@ pub struct Endpoints {
 
     /// User REST endpoint; the client appends `[-beta]/{uid}?...` to it.
     pub user_rest: String,
+
+    /// Sign-in page; the client appends `?path={account file}`.
+    pub login_page: String,
+
+    /// Page opened when the client needs an update.
+    pub update_page: String,
+
+    /// Account file name in the user folder.
+    pub account_file: String,
 }
 
 impl Default for Endpoints {
@@ -52,6 +61,9 @@ impl Default for Endpoints {
         Self {
             graphql: "https://internal.slippi.gg/graphql".into(),
             user_rest: "https://users-rest-dot-slippi.uc.r.appspot.com/user".into(),
+            login_page: "https://slippi.gg/online/enable".into(),
+            update_page: "https://slippi.gg/downloads?update=true".into(),
+            account_file: "user.json".into(),
         }
     }
 }
