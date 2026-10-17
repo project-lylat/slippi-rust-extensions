@@ -51,6 +51,9 @@ pub struct Endpoints {
 
     /// Page opened when the client needs an update.
     pub update_page: String,
+
+    /// Where players get help, named in error messages (i.e: "Slippi Discord").
+    pub support: String,
 }
 
 impl Default for Endpoints {
@@ -60,6 +63,7 @@ impl Default for Endpoints {
             user_rest: "https://users-rest-dot-slippi.uc.r.appspot.com/user".into(),
             login_page: "https://slippi.gg/online/enable".into(),
             update_page: "https://slippi.gg/downloads?update=true".into(),
+            support: "Slippi Discord".into(),
         }
     }
 }

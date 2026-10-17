@@ -100,6 +100,10 @@ pub extern "C" fn slprs_exi_device_create_lylat(
         endpoints.update_page = update_page_url;
     }
 
+    if let Some(support) = lylat.support {
+        endpoints.support = support;
+    }
+
     let lylat_json = std::path::PathBuf::from(c_str_to_string(lylat_account_path, fn_name, "lylat_account_path"));
 
     let account_files = if lylat_servers {

@@ -23,6 +23,9 @@ pub struct SlippiConfig {
     /// Page opened when the client needs an update.
     pub update_page_url: Option<String>,
 
+    /// Where players get help, named in error messages.
+    pub support: Option<String>,
+
     /// The Lylat site, for the QR device sign-in (`/api/device/...`).
     pub origin: Option<String>,
 
@@ -39,6 +42,7 @@ impl SlippiConfig {
             user_rest_url: other.user_rest_url.or(self.user_rest_url),
             login_page_url: other.login_page_url.or(self.login_page_url),
             update_page_url: other.update_page_url.or(self.update_page_url),
+            support: other.support.or(self.support),
             origin: other.origin.or(self.origin),
             mm_host: other.mm_host.or(self.mm_host),
             mm_port: other.mm_port.or(self.mm_port),
@@ -53,6 +57,7 @@ impl SlippiConfig {
             user_rest_url: env::var("SLIPPI_USER_REST_URL").ok(),
             login_page_url: env::var("SLIPPI_LOGIN_PAGE_URL").ok(),
             update_page_url: env::var("SLIPPI_UPDATE_PAGE_URL").ok(),
+            support: None,
             origin: env::var("SLIPPI_LYLAT_ORIGIN").ok(),
             mm_host: env::var("SLIPPI_MM_HOST").ok(),
             mm_port: env::var("SLIPPI_MM_PORT").ok().and_then(|port| port.parse().ok()),

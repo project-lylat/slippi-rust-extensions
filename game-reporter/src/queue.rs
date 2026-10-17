@@ -226,10 +226,11 @@ fn process_reports(queue: &GameReporterQueue, event: ProcessingEvent) {
                     // Tell player their report failed to send
                     if let Some(report) = report {
                         if report.online_mode == OnlinePlayMode::Ranked {
+                            let support = &queue.api_client.endpoints().support;
                             Dolphin::add_osd_message(
                                 Color::Red,
                                 OSDDuration::VeryLong,
-                                "Failed to send game report. If you get this often, visit Slippi Discord for help.",
+                                format!("Failed to send game report. If you get this often, visit {support} for help."),
                             );
                         }
                     }
