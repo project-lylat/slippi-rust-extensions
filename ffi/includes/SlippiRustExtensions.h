@@ -28,6 +28,7 @@ typedef enum SlippiMatchmakingOnlinePlayMode {
   Unranked = 1,
   Direct = 2,
   Teams = 3,
+  Party = 4,
 } SlippiMatchmakingOnlinePlayMode;
 
 /**

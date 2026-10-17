@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 
 mod development;
 mod production;
+mod staging;
 
 pub(crate) static _SLP_CFG: OnceLock<SlippiConfig> = OnceLock::new();
 
@@ -61,6 +62,11 @@ impl SlippiConfig {
     #[cfg(feature = "slippi_env_development")]
     fn read_file_config(_env: &str) -> SlippiConfig {
         SlippiConfig::development()
+    }
+
+    #[cfg(feature = "slippi_env_staging")]
+    fn read_file_config(_env: &str) -> SlippiConfig {
+        SlippiConfig::staging()
     }
 
     #[cfg(feature = "slippi_env_production")]

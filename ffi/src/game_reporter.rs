@@ -20,6 +20,7 @@ pub enum SlippiMatchmakingOnlinePlayMode {
     Unranked = 1,
     Direct = 2,
     Teams = 3,
+    Party = 4,
 }
 
 /// Creates a new Player Report and leaks it, returning the pointer.
@@ -87,6 +88,7 @@ pub extern "C" fn slprs_game_report_create(
             SlippiMatchmakingOnlinePlayMode::Unranked => ReporterOnlinePlayMode::Unranked,
             SlippiMatchmakingOnlinePlayMode::Direct => ReporterOnlinePlayMode::Direct,
             SlippiMatchmakingOnlinePlayMode::Teams => ReporterOnlinePlayMode::Teams,
+            SlippiMatchmakingOnlinePlayMode::Party => ReporterOnlinePlayMode::Party,
         },
 
         match_id,

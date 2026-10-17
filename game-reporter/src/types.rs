@@ -12,6 +12,7 @@ pub enum OnlinePlayMode {
     Unranked = 1,
     Direct = 2,
     Teams = 3,
+    Party = 4,
 }
 
 /// Describes metadata about a game that we need to log to the server.
