@@ -11,9 +11,11 @@ use dolphin_integrations::Log;
 
 pub mod exi;
 pub mod game_reporter;
+pub mod hsd;
 pub mod jukebox;
 pub mod logger;
 pub mod lylat_config;
+pub mod matchmaking;
 pub mod rank_info;
 pub mod user;
 

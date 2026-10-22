@@ -10,7 +10,9 @@ members = [
     "exi",
     "ffi",
     "game-reporter",
+    "hsd",
     "jukebox",
+    "matchmaking",
     "slippi-gg-api",
     "user",
 ]
