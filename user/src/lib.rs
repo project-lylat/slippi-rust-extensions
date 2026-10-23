@@ -20,19 +20,13 @@ use rank_fetcher::{RankFetcher, RankFetcherStatus, SlippiRank};
 mod watcher;
 use watcher::UserInfoWatcher;
 
-/// Lylat: one place the account can be read from.
 #[derive(Clone, Debug)]
 pub struct AccountFile {
     pub path: PathBuf,
 
-    /// Read the account from this object inside the file (i.e: `slippi`, the Slippi account
-    /// linked to a Lylat account) instead of the top level; only `displayName` may come from the
-    /// top level. When it is missing or has no `uid` or `playKey`, the next file is tried.
     pub section: Option<String>,
 }
 
-/// Lylat: the account files, tried in order until one holds an account. The first is the one
-/// the login page writes; logout removes the one that was loaded.
 #[derive(Debug)]
 pub struct AccountFiles {
     files: Vec<AccountFile>,
@@ -47,7 +41,6 @@ impl AccountFiles {
         }
     }
 
-    /// Slippi's setup: `user.json` in the user folder.
     fn single(path: PathBuf) -> Self {
         Self::new(vec![AccountFile { path, section: None }])
     }
@@ -56,7 +49,6 @@ impl AccountFiles {
         &self.files[0].path
     }
 
-    /// Reads the first account file that holds an account, and remembers which one it was.
     fn read(&self) -> Option<Result<UserInfo, serde_json::Error>> {
         let mut last_error = None;
 
@@ -94,8 +86,7 @@ impl AccountFiles {
                     _ => continue,
                 };
 
-                // Credentials come from the section alone; only the display name may come from
-                // the top level (the Lylat account's), until the server refresh replaces it.
+                // Only the display name may come from the top level.
                 if !has(&fields, "displayName") {
                     if let Some(display_name) = value.get("displayName") {
                         fields.insert(String::from("displayName"), display_name.clone());
@@ -232,7 +223,6 @@ impl UserManager {
         }
     }
 
-    /// Lylat: reads the account from these files, in order, instead of `user.json`.
     pub fn with_account_files(mut self, files: Vec<AccountFile>) -> Self {
         if !files.is_empty() {
             self.user_json_path = Arc::new(AccountFiles::new(files));
@@ -446,7 +436,6 @@ fn attempt_login(
             },
         },
 
-        // No account file yet; read errors are logged by `AccountFiles::read`.
         None => {},
     }
 
@@ -574,7 +563,6 @@ mod lylat_account_tests {
         dir
     }
 
-    /// The vanilla list `slprs_exi_device_create_lylat` builds: Slippi credentials only.
     fn vanilla(dir: &PathBuf) -> AccountFiles {
         AccountFiles::new(vec![
             AccountFile {
@@ -588,7 +576,6 @@ mod lylat_account_tests {
         ])
     }
 
-    /// The mod list: the Lylat account in lylat.json and nothing else.
     fn modded(dir: &PathBuf) -> AccountFiles {
         AccountFiles::new(vec![AccountFile {
             path: dir.join("lylat.json"),
