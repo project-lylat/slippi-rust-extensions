@@ -36,23 +36,16 @@ pub(crate) fn default_timeout() -> Duration {
     Duration::from_millis(5000)
 }
 
-/// The service an `APIClient` talks to: its servers and web pages. The defaults
-/// are Slippi's; a fork can point a client at its own service with `APIClient::with_endpoints`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Endpoints {
-    /// GraphQL endpoint (game reports, rank, match status).
     pub graphql: String,
 
-    /// User REST endpoint; the client appends `[-beta]/{uid}?...` to it.
     pub user_rest: String,
 
-    /// Sign-in page; the client appends `?path={account file}`.
     pub login_page: String,
 
-    /// Page opened when the client needs an update.
     pub update_page: String,
 
-    /// Where players get help, named in error messages (i.e: "Slippi Discord").
     pub support: String,
 }
 
@@ -117,13 +110,11 @@ impl APIClient {
         }
     }
 
-    /// Points this client at other servers.
     pub fn with_endpoints(mut self, endpoints: Endpoints) -> Self {
         self.endpoints = Arc::new(endpoints);
         self
     }
 
-    /// The servers this client talks to.
     pub fn endpoints(&self) -> &Endpoints {
         &self.endpoints
     }

@@ -203,19 +203,6 @@ extern "C" {
  */
 uintptr_t slprs_exi_device_create(struct SlippiRustEXIConfig config);
 
-/**
- * Lylat: `slprs_exi_device_create` for a Lylat build. The Dolphin side calls it once per game:
- *
- * - `lylat_servers` false (vanilla): Slippi's servers, with Slippi credentials only: the Slippi
- *   account linked to the Lylat account (the `slippi` section of `lylat_account_path`), or
- *   Slippi's own `user.json` when there is none.
- * - `lylat_servers` true (mods): the Lylat servers, with the Lylat account in
- *   `lylat_account_path` and nothing else.
- *
- * The Lylat addresses (servers, sign-in and update pages) come from the environment this library was
- * built for (`SLIPPI_ENV`, see the `slippi-config` crate); the `SLIPPI_*` variables listed
- * there override them when the game starts.
- */
 uintptr_t slprs_exi_device_create_lylat(struct SlippiRustEXIConfig config,
                                         bool lylat_servers,
                                         const char *lylat_account_path);
@@ -413,23 +400,20 @@ void slprs_logging_update_container(const char *kind, bool enabled, int level);
 void slprs_mainline_logging_update_log_level(int level);
 
 /**
- * The Lylat site, i.e: `https://lylat.gg`. Free it with `slprs_lylat_free_string`.
+ * Free it with `slprs_lylat_free_string`.
  */
 char *slprs_lylat_origin(void);
 
 /**
- * The Lylat matchmaking host, i.e: `lylat.gg`. Free it with `slprs_lylat_free_string`.
+ * Free it with `slprs_lylat_free_string`.
  */
 char *slprs_lylat_mm_host(void);
 
 /**
- * The Lylat matchmaking port, 0 when the environment has none.
+ * 0 when the environment has none.
  */
 uint16_t slprs_lylat_mm_port(void);
 
-/**
- * Frees a string returned by the `slprs_lylat_*` functions.
- */
 void slprs_lylat_free_string(char *value);
 
 /**
