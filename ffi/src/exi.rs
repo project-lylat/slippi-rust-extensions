@@ -60,17 +60,6 @@ pub extern "C" fn slprs_exi_device_create(config: SlippiRustEXIConfig) -> usize 
     create_exi_device(config, Endpoints::default(), Vec::new(), "slprs_exi_device_create")
 }
 
-/// Lylat: `slprs_exi_device_create` for a Lylat build. The Dolphin side calls it once per game:
-///
-/// - `lylat_servers` false (vanilla): Slippi's servers, with Slippi credentials only: the Slippi
-///   account linked to the Lylat account (the `slippi` section of `lylat_account_path`), or
-///   Slippi's own `user.json` when there is none.
-/// - `lylat_servers` true (mods): the Lylat servers, with the Lylat account in
-///   `lylat_account_path` and nothing else.
-///
-/// The Lylat addresses (servers, sign-in and update pages) come from the environment this library was
-/// built for (`SLIPPI_ENV`, see the `slippi-config` crate); the `SLIPPI_*` variables listed
-/// there override them when the game starts.
 #[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_create_lylat(
     config: SlippiRustEXIConfig,
@@ -91,7 +80,6 @@ pub extern "C" fn slprs_exi_device_create_lylat(
         }
     }
 
-    // The account is signed in, and the update downloaded, on the Lylat site in both cases.
     if let Some(login_page_url) = lylat.login_page_url {
         endpoints.login_page = login_page_url;
     }

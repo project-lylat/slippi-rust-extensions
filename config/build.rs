@@ -1,6 +1,4 @@
 fn main() {
-    // Read at build time, so `SLIPPI_ENV=production cargo build` picks the production settings.
-    // Rebuild whenever it changes, or a switch would keep the old environment.
     println!("cargo:rerun-if-env-changed=SLIPPI_ENV");
 
     let env = std::env::var("SLIPPI_ENV").unwrap_or_else(|_| String::from("development"));

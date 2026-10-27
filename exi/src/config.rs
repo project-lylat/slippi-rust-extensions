@@ -28,9 +28,7 @@ pub struct Config {
     pub paths: FilePathsConfig,
     pub scm: SCMConfig,
 
-    /// Servers the device talks to; Slippi's unless the Dolphin side passes others.
     pub endpoints: Endpoints,
 
-    /// Lylat: account files to read, in order. Empty keeps Slippi's `user.json`.
     pub account_files: Vec<AccountFile>,
 }
