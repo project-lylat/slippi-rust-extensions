@@ -11,6 +11,7 @@ members = [
     "ffi",
     "game-reporter",
     "jukebox",
+    "replay-uploader",
     "slippi-gg-api",
     "user",
 ]

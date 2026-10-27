@@ -1,0 +1,15 @@
+[package]
+name = "lylat-replay-uploader"
+description = "Uploads finished online replays to Lylat."
+version = "0.1.0"
+authors = ["Lylat Team"]
+edition = "2024"
+publish = false
+
+[dependencies]
+dolphin-integrations = { path = "../dolphin" }
+flate2 = "1.0"
+serde_json = { workspace = true }
+sha2 = "0.10"
+tracing = { workspace = true }
+ureq = { workspace = true }

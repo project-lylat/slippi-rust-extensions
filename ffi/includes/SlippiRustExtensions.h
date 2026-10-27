@@ -173,6 +173,14 @@ void slprs_exi_device_reporter_push_replay_data(uintptr_t instance_ptr,
                                                 uint32_t length);
 
 /**
+ * `started_at` and `match_id` may be empty.
+ */
+void slprs_exi_device_upload_replay(uintptr_t instance_ptr,
+                                    const char *path,
+                                    const char *started_at,
+                                    const char *match_id);
+
+/**
  * Gets the status and result of the background ISO MD5 check.
  */
 struct RustIsoMd5Check slprs_get_iso_md5_check(uintptr_t exi_device_instance_ptr);
