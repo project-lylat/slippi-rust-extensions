@@ -31,4 +31,12 @@ pub struct Config {
     pub endpoints: Endpoints,
 
     pub account_files: Vec<AccountFile>,
+
+    pub replay_upload: Option<ReplayUploadConfig>,
+}
+
+#[derive(Debug)]
+pub struct ReplayUploadConfig {
+    pub web_root: String,
+    pub account_path: std::path::PathBuf,
 }

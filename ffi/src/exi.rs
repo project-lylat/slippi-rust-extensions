@@ -2,11 +2,14 @@ use std::ffi::{c_char, c_int};
 
 use dolphin_integrations::Log;
 use slippi_config::SlippiConfig;
-use slippi_exi_device::{AccountFile, Config, Endpoints, FilePathsConfig, JukeboxConfiguration, SCMConfig, SlippiEXIDevice};
+use slippi_exi_device::{
+    AccountFile, Config, Endpoints, FilePathsConfig, JukeboxConfiguration, ReplayUploadConfig, SCMConfig, SlippiEXIDevice,
+    UploadJob,
+};
 use slippi_game_reporter::GameReport;
 use slippi_game_reporter::{IsoMd5CheckResult, IsoMd5CheckState};
 
-use crate::{c_str_to_string, with_returning};
+use crate::{c_str_to_string, with, with_returning};
 
 /// ISO MD5 status and final outcome that we vend back over FFI.
 #[repr(C)]
@@ -57,7 +60,7 @@ pub struct SlippiRustEXIConfig {
 /// The returned pointer from this should *not* be used after calling `slprs_exi_device_destroy`.
 #[unsafe(no_mangle)]
 pub extern "C" fn slprs_exi_device_create(config: SlippiRustEXIConfig) -> usize {
-    create_exi_device(config, Endpoints::default(), Vec::new(), "slprs_exi_device_create")
+    create_exi_device(config, Endpoints::default(), Vec::new(), None, "slprs_exi_device_create")
 }
 
 #[unsafe(no_mangle)]
@@ -94,6 +97,11 @@ pub extern "C" fn slprs_exi_device_create_lylat(
 
     let lylat_json = std::path::PathBuf::from(c_str_to_string(lylat_account_path, fn_name, "lylat_account_path"));
 
+    let replay_upload = lylat.origin.clone().map(|web_root| ReplayUploadConfig {
+        web_root,
+        account_path: lylat_json.clone(),
+    });
+
     let account_files = if lylat_servers {
         vec![AccountFile {
             path: lylat_json,
@@ -115,10 +123,16 @@ pub extern "C" fn slprs_exi_device_create_lylat(
         ]
     };
 
-    create_exi_device(config, endpoints, account_files, fn_name)
+    create_exi_device(config, endpoints, account_files, replay_upload, fn_name)
 }
 
-fn create_exi_device(config: SlippiRustEXIConfig, endpoints: Endpoints, account_files: Vec<AccountFile>, fn_name: &str) -> usize {
+fn create_exi_device(
+    config: SlippiRustEXIConfig,
+    endpoints: Endpoints,
+    account_files: Vec<AccountFile>,
+    replay_upload: Option<ReplayUploadConfig>,
+    fn_name: &str,
+) -> usize {
     dolphin_integrations::ffi::osd::set_global_hook(config.osd_add_msg_fn);
 
     let exi_device = Box::new(SlippiEXIDevice::new(Config {
@@ -133,6 +147,7 @@ fn create_exi_device(config: SlippiRustEXIConfig, endpoints: Endpoints, account_
 
         endpoints,
         account_files,
+        replay_upload,
     }));
 
     let exi_device_instance_ptr = Box::into_raw(exi_device) as usize;
@@ -276,6 +291,26 @@ pub extern "C" fn slprs_exi_device_reporter_push_replay_data(instance_ptr: usize
 
     // Fall back into a raw pointer so Rust doesn't obliterate the object.
     let _leak = Box::into_raw(device);
+}
+
+/// `started_at` and `match_id` may be empty.
+#[unsafe(no_mangle)]
+pub extern "C" fn slprs_exi_device_upload_replay(
+    instance_ptr: usize,
+    path: *const c_char,
+    started_at: *const c_char,
+    match_id: *const c_char,
+) {
+    let fn_name = "slprs_exi_device_upload_replay";
+    let job = UploadJob {
+        path: c_str_to_string(path, fn_name, "path").into(),
+        started_at: Some(c_str_to_string(started_at, fn_name, "started_at")).filter(|value| !value.is_empty()),
+        match_id: Some(c_str_to_string(match_id, fn_name, "match_id")).filter(|value| !value.is_empty()),
+    };
+
+    with::<SlippiEXIDevice, _>(instance_ptr, |device| {
+        device.replay_uploader.queue(job);
+    });
 }
 
 /// Gets the status and result of the background ISO MD5 check.

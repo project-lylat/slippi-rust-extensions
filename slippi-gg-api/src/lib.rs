@@ -61,6 +61,22 @@ impl Default for Endpoints {
     }
 }
 
+pub fn user_agent(slippi_semver: &str) -> String {
+    let _build = "";
+    let os = std::env::consts::OS;
+
+    #[cfg(feature = "mainline")]
+    let _build = "mainline";
+
+    #[cfg(feature = "ishiiruka")]
+    let _build = "ishiiruka";
+
+    #[cfg(feature = "playback")]
+    let _build = "playback";
+
+    format!("SlippiDolphin (b: {_build}) (v: {slippi_semver}) (o: {os})")
+}
+
 /// A wrapper type that simply dereferences to a `ureq::Agent`.
 ///
 /// It's extracted purely for ease of debugging, and for segmenting
@@ -82,18 +98,6 @@ impl APIClient {
     /// The returned client will only resolve to IPV4 addresses at the moment
     /// due to upstream issues with GCP flex instances and IPV6.
     pub fn new(slippi_semver: &str) -> Self {
-        let _build = "";
-        let os = std::env::consts::OS;
-
-        #[cfg(feature = "mainline")]
-        let _build = "mainline";
-
-        #[cfg(feature = "ishiiruka")]
-        let _build = "ishiiruka";
-
-        #[cfg(feature = "playback")]
-        let _build = "playback";
-
         // We set `max_idle_connections` to `5` to mimic how CURL was configured in
         // the old C++ logic. This gets cloned and passed down into modules so that
         // the underlying connection pool is shared.
@@ -101,7 +105,7 @@ impl APIClient {
             .resolver(Ipv4Resolver)
             .max_idle_connections(5)
             .timeout(default_timeout())
-            .user_agent(&format!("SlippiDolphin (b: {_build}) (v: {slippi_semver}) (o: {os})"))
+            .user_agent(&user_agent(slippi_semver))
             .build();
 
         Self {

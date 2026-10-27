@@ -30,5 +30,6 @@ slippi-game-reporter = { path = "../game-reporter" }
 slippi-gg-api = { path = "../slippi-gg-api" }
 slippi-jukebox = { path = "../jukebox" }
 slippi-matchmaking = { path = "../matchmaking" }
+slippi-replay-uploader = { path = "../replay-uploader" }
 slippi-user = { path = "../user" }
 tracing = { workspace = true }
