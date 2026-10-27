@@ -2,10 +2,7 @@
 name = "slippi-replay-uploader"
 description = "Uploads finished online replays to Lylat."
 version = "0.1.0"
-authors = [
-    "Slippi Team",
-    "Lylat Team"
-]
+authors = ["Lylat Team"]
 edition = "2024"
 publish = false
 
