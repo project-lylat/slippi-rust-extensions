@@ -6,6 +6,7 @@
 //! Slippi stuff is happening" and enables us to let the Rust side live in its own world.
 
 use dolphin_integrations::Log;
+use lylat_replay_uploader::ReplayUploader;
 use slippi_game_reporter::GameReporter;
 use slippi_gg_api::APIClient;
 use slippi_jukebox::Jukebox;
@@ -13,7 +14,8 @@ use slippi_matchmaking::MatchmakingClient;
 use slippi_user::UserManager;
 
 mod config;
-pub use config::{Config, FilePathsConfig, SCMConfig};
+pub use config::{Config, FilePathsConfig, ReplayUploadConfig, SCMConfig};
+pub use lylat_replay_uploader::UploadJob;
 pub use slippi_gg_api::Endpoints;
 pub use slippi_user::AccountFile;
 
@@ -25,6 +27,7 @@ pub struct SlippiEXIDevice {
     pub user_manager: UserManager,
     pub matchmaking: MatchmakingClient,
     pub jukebox: Option<Jukebox>,
+    pub replay_uploader: ReplayUploader,
 }
 
 pub enum JukeboxConfiguration {
@@ -65,12 +68,22 @@ impl SlippiEXIDevice {
 
         let matchmaking = MatchmakingClient::new(user_manager.clone(), config.scm.slippi_semver.clone());
 
+        let replay_uploader = match &config.replay_upload {
+            Some(upload) => ReplayUploader::new(
+                slippi_gg_api::user_agent(&config.scm.slippi_semver),
+                Some(upload.web_root.clone()),
+                upload.account_path.clone(),
+            ),
+            None => ReplayUploader::new(String::new(), None, Default::default()),
+        };
+
         Self {
             config,
             game_reporter,
             user_manager,
             matchmaking,
             jukebox: None,
+            replay_uploader,
         }
     }
 

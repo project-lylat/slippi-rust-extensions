@@ -751,6 +751,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
+name = "lylat-replay-uploader"
+version = "0.1.0"
+dependencies = [
+ "dolphin-integrations",
+ "flate2",
+ "serde_json",
+ "sha2",
+ "tracing",
+ "ureq",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1289,6 +1301,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1315,6 +1338,7 @@ name = "slippi-exi-device"
 version = "0.1.0"
 dependencies = [
  "dolphin-integrations",
+ "lylat-replay-uploader",
  "slippi-game-reporter",
  "slippi-gg-api",
  "slippi-jukebox",
