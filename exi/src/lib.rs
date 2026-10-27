@@ -6,17 +6,17 @@
 //! Slippi stuff is happening" and enables us to let the Rust side live in its own world.
 
 use dolphin_integrations::Log;
+use lylat_replay_uploader::ReplayUploader;
 use slippi_game_reporter::GameReporter;
 use slippi_gg_api::APIClient;
 use slippi_jukebox::Jukebox;
 use slippi_matchmaking::MatchmakingClient;
-use slippi_replay_uploader::ReplayUploader;
 use slippi_user::UserManager;
 
 mod config;
 pub use config::{Config, FilePathsConfig, ReplayUploadConfig, SCMConfig};
+pub use lylat_replay_uploader::UploadJob;
 pub use slippi_gg_api::Endpoints;
-pub use slippi_replay_uploader::UploadJob;
 pub use slippi_user::AccountFile;
 
 /// An EXI Device subclass specific to managing and interacting with the game itself.

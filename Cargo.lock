@@ -751,6 +751,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
+name = "lylat-replay-uploader"
+version = "0.1.0"
+dependencies = [
+ "dolphin-integrations",
+ "flate2",
+ "serde_json",
+ "sha2",
+ "tracing",
+ "ureq",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1326,11 +1338,11 @@ name = "slippi-exi-device"
 version = "0.1.0"
 dependencies = [
  "dolphin-integrations",
+ "lylat-replay-uploader",
  "slippi-game-reporter",
  "slippi-gg-api",
  "slippi-jukebox",
  "slippi-matchmaking",
- "slippi-replay-uploader",
  "slippi-user",
  "tracing",
 ]
@@ -1394,18 +1406,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "tungstenite",
-]
-
-[[package]]
-name = "slippi-replay-uploader"
-version = "0.1.0"
-dependencies = [
- "dolphin-integrations",
- "flate2",
- "serde_json",
- "sha2",
- "tracing",
- "ureq",
 ]
 
 [[package]]

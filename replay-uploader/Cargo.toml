@@ -1,5 +1,5 @@
 [package]
-name = "slippi-replay-uploader"
+name = "lylat-replay-uploader"
 description = "Uploads finished online replays to Lylat."
 version = "0.1.0"
 authors = ["Lylat Team"]
