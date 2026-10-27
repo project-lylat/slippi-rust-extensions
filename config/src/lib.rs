@@ -64,17 +64,17 @@ impl SlippiConfig {
         }
     }
 
-    #[cfg(feature = "slippi_env_development")]
+    #[cfg(slippi_env = "development")]
     fn read_file_config(_env: &str) -> SlippiConfig {
         SlippiConfig::development()
     }
 
-    #[cfg(feature = "slippi_env_staging")]
+    #[cfg(slippi_env = "staging")]
     fn read_file_config(_env: &str) -> SlippiConfig {
         SlippiConfig::staging()
     }
 
-    #[cfg(feature = "slippi_env_production")]
+    #[cfg(slippi_env = "production")]
     fn read_file_config(_env: &str) -> SlippiConfig {
         SlippiConfig::production()
     }
