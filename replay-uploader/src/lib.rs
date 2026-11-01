@@ -11,9 +11,6 @@ use sha2::{Digest, Sha256};
 use ureq::{Agent, AgentBuilder};
 
 const MAX_PENDING: usize = 4;
-// The server and nginx refuse bodies over 10 MiB; the room left covers the multipart fields.
-const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
-const MULTIPART_ROOM: usize = 4096;
 const XZ_PRESET: u32 = 6;
 const MAX_RAW_BYTES: u64 = 80 * 1024 * 1024;
 const MAX_FILE_NAME_CHARS: usize = 120;
@@ -143,11 +140,8 @@ fn upload(agent: &Agent, api: &str, account_path: &Path, job: &UploadJob) -> Out
         Err(error) => return Outcome::Failed(format!("replay unreadable: {error}")),
     };
 
-    let (sha, xz) = match xz_stream(replay, XZ_PRESET, MAX_UPLOAD_BYTES - MULTIPART_ROOM) {
+    let (sha, xz) = match xz_stream(replay, XZ_PRESET) {
         Ok(result) => result,
-        Err(error) if error.kind() == ErrorKind::FileTooLarge => {
-            return Outcome::Skipped("compressed replay over 10 MiB".into());
-        },
         Err(error) => return Outcome::Failed(format!("xz failed: {error}")),
     };
 
@@ -246,17 +240,11 @@ fn sha256_hex(data: &[u8]) -> String {
     Sha256::digest(data).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-// Reads the replay in chunks, hashing the raw bytes, and stops once the
-// compressed output passes `max_bytes`, so memory stays near the output limit.
-fn xz_stream(mut reader: impl Read, preset: u32, max_bytes: usize) -> std::io::Result<(String, Vec<u8>)> {
+// Reads the replay in chunks and hashes the raw bytes on the way, so only the
+// compressed copy is held in memory. The server enforces the upload size.
+fn xz_stream(mut reader: impl Read, preset: u32) -> std::io::Result<(String, Vec<u8>)> {
     let mut hasher = Sha256::new();
-    let mut encoder = XzWriter::new(
-        CappedVec {
-            data: Vec::new(),
-            max_bytes,
-        },
-        XzOptions::with_preset(preset),
-    )?;
+    let mut encoder = XzWriter::new(Vec::new(), XzOptions::with_preset(preset))?;
     let mut chunk = vec![0u8; 64 * 1024];
     loop {
         let read = match reader.read(&mut chunk) {
@@ -269,29 +257,7 @@ fn xz_stream(mut reader: impl Read, preset: u32, max_bytes: usize) -> std::io::R
         encoder.write_all(&chunk[..read])?;
     }
     let sha = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
-    Ok((sha, encoder.finish()?.data))
-}
-
-struct CappedVec {
-    data: Vec<u8>,
-    max_bytes: usize,
-}
-
-impl Write for CappedVec {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if self.data.len() + buf.len() > self.max_bytes {
-            return Err(std::io::Error::new(
-                ErrorKind::FileTooLarge,
-                "compressed replay over the size limit",
-            ));
-        }
-        self.data.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
+    Ok((sha, encoder.finish()?))
 }
 
 fn xz_file_name(started_at: Option<&str>, sha: &str) -> String {
@@ -357,19 +323,12 @@ mod tests {
     #[test]
     fn xz_round_trips_and_hashes_the_raw_bytes() {
         let raw: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
-        let (sha, xz) = xz_stream(&raw[..], 6, 20_000_000).unwrap();
+        let (sha, xz) = xz_stream(&raw[..], 6).unwrap();
         assert_eq!(sha, sha256_hex(&raw));
         assert!(xz.len() < raw.len() / 10);
         let mut out = Vec::new();
         lzma_rust2::XzReader::new(&xz[..], false).read_to_end(&mut out).unwrap();
         assert_eq!(out, raw);
-    }
-
-    #[test]
-    fn xz_stops_at_the_size_limit() {
-        let raw: Vec<u8> = (0..200_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
-        let error = xz_stream(&raw[..], 6, 1_000).unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::FileTooLarge);
     }
 
     #[test]
