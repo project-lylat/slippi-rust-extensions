@@ -1,18 +1,17 @@
-use std::io::Write;
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::thread;
 use std::time::Duration;
 
 use dolphin_integrations::Log;
-use flate2::Compression;
-use flate2::write::GzEncoder;
+use lzma_rust2::{XzOptions, XzWriter};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use ureq::{Agent, AgentBuilder};
 
 const MAX_PENDING: usize = 4;
-const MAX_GZIP_BYTES: usize = 20_000_000;
+const XZ_PRESET: u32 = 6;
 const MAX_RAW_BYTES: u64 = 80 * 1024 * 1024;
 const MAX_FILE_NAME_CHARS: usize = 120;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
@@ -136,20 +135,15 @@ fn upload(agent: &Agent, api: &str, account_path: &Path, job: &UploadJob) -> Out
         Err(error) => return Outcome::Failed(format!("replay unreadable: {error}")),
     }
 
-    let raw = match std::fs::read(&job.path) {
-        Ok(raw) => raw,
+    let replay = match std::fs::File::open(&job.path) {
+        Ok(replay) => replay,
         Err(error) => return Outcome::Failed(format!("replay unreadable: {error}")),
     };
 
-    let sha = sha256_hex(&raw);
-    let gz = match gzip(&raw) {
-        Ok(gz) => gz,
-        Err(error) => return Outcome::Failed(format!("gzip failed: {error}")),
+    let (sha, xz) = match xz_stream(replay, XZ_PRESET) {
+        Ok(result) => result,
+        Err(error) => return Outcome::Failed(format!("xz failed: {error}")),
     };
-
-    if gz.len() > MAX_GZIP_BYTES {
-        return Outcome::Skipped("compressed replay over 20,000,000 bytes".into());
-    }
 
     let file_name = job
         .path
@@ -163,8 +157,8 @@ fn upload(agent: &Agent, api: &str, account_path: &Path, job: &UploadJob) -> Out
         job.started_at.as_deref(),
         job.match_id.as_deref(),
         file_name,
-        &gz_file_name(job.started_at.as_deref(), &sha),
-        &gz,
+        &xz_file_name(job.started_at.as_deref(), &sha),
+        &xz,
     );
 
     let response = agent
@@ -241,20 +235,35 @@ fn classify(status: u16, body: &str) -> Outcome {
     }
 }
 
+#[cfg(test)]
 fn sha256_hex(data: &[u8]) -> String {
     Sha256::digest(data).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn gzip(data: &[u8]) -> std::io::Result<Vec<u8>> {
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder.write_all(data)?;
-    encoder.finish()
+// Reads the replay in chunks and hashes the raw bytes on the way, so only the
+// compressed copy is held in memory. The server enforces the upload size.
+fn xz_stream(mut reader: impl Read, preset: u32) -> std::io::Result<(String, Vec<u8>)> {
+    let mut hasher = Sha256::new();
+    let mut encoder = XzWriter::new(Vec::new(), XzOptions::with_preset(preset))?;
+    let mut chunk = vec![0u8; 64 * 1024];
+    loop {
+        let read = match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        hasher.update(&chunk[..read]);
+        encoder.write_all(&chunk[..read])?;
+    }
+    let sha = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok((sha, encoder.finish()?))
 }
 
-fn gz_file_name(started_at: Option<&str>, sha: &str) -> String {
+fn xz_file_name(started_at: Option<&str>, sha: &str) -> String {
     match started_at {
-        Some(started_at) if !started_at.is_empty() => format!("{started_at}.slp.gz"),
-        _ => format!("{}.slp.gz", &sha[..16]),
+        Some(started_at) if !started_at.is_empty() => format!("{started_at}.slp.xz"),
+        _ => format!("{}.slp.xz", &sha[..16]),
     }
 }
 
@@ -265,10 +274,10 @@ fn multipart_body(
     started_at: Option<&str>,
     match_id: Option<&str>,
     file_name: Option<&str>,
-    gz_name: &str,
-    gz: &[u8],
+    xz_name: &str,
+    xz: &[u8],
 ) -> Vec<u8> {
-    let mut body = Vec::with_capacity(gz.len() + 1024);
+    let mut body = Vec::with_capacity(xz.len() + 1024);
     let mut field = |name: &str, value: &str| {
         body.extend_from_slice(
             format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").as_bytes(),
@@ -288,11 +297,11 @@ fn multipart_body(
 
     body.extend_from_slice(
         format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{gz_name}\"\r\nContent-Type: application/gzip\r\n\r\n"
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{xz_name}\"\r\nContent-Type: application/x-xz\r\n\r\n"
         )
         .as_bytes(),
     );
-    body.extend_from_slice(gz);
+    body.extend_from_slice(xz);
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     body
 }
@@ -312,19 +321,22 @@ mod tests {
     }
 
     #[test]
-    fn gzip_round_trips() {
-        let gz = gzip(b"replay bytes").unwrap();
-        let mut out = String::new();
-        flate2::read::GzDecoder::new(&gz[..]).read_to_string(&mut out).unwrap();
-        assert_eq!(out, "replay bytes");
+    fn xz_round_trips_and_hashes_the_raw_bytes() {
+        let raw: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let (sha, xz) = xz_stream(&raw[..], 6).unwrap();
+        assert_eq!(sha, sha256_hex(&raw));
+        assert!(xz.len() < raw.len() / 10);
+        let mut out = Vec::new();
+        lzma_rust2::XzReader::new(&xz[..], false).read_to_end(&mut out).unwrap();
+        assert_eq!(out, raw);
     }
 
     #[test]
-    fn gz_name_uses_start_time_or_sha() {
+    fn xz_name_uses_start_time_or_sha() {
         let sha = "0123456789abcdef0123456789abcdef";
-        assert_eq!(gz_file_name(Some("2026-10-26T12:00:00Z"), sha), "2026-10-26T12:00:00Z.slp.gz");
-        assert_eq!(gz_file_name(None, sha), "0123456789abcdef.slp.gz");
-        assert_eq!(gz_file_name(Some(""), sha), "0123456789abcdef.slp.gz");
+        assert_eq!(xz_file_name(Some("2026-10-26T12:00:00Z"), sha), "2026-10-26T12:00:00Z.slp.xz");
+        assert_eq!(xz_file_name(None, sha), "0123456789abcdef.slp.xz");
+        assert_eq!(xz_file_name(Some(""), sha), "0123456789abcdef.slp.xz");
     }
 
     #[test]
@@ -356,20 +368,20 @@ mod tests {
             Some("2026-10-26T12:00:00Z"),
             Some("mode.unranked-1"),
             Some("Game_1.slp"),
-            "2026-10-26T12:00:00Z.slp.gz",
-            b"GZ",
+            "2026-10-26T12:00:00Z.slp.xz",
+            b"XZ",
         );
         let expected = "--B\r\nContent-Disposition: form-data; name=\"sha256\"\r\n\r\nabc\r\n\
 --B\r\nContent-Disposition: form-data; name=\"startedAt\"\r\n\r\n2026-10-26T12:00:00Z\r\n\
 --B\r\nContent-Disposition: form-data; name=\"matchId\"\r\n\r\nmode.unranked-1\r\n\
 --B\r\nContent-Disposition: form-data; name=\"fileName\"\r\n\r\nGame_1.slp\r\n\
---B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"2026-10-26T12:00:00Z.slp.gz\"\r\nContent-Type: application/gzip\r\n\r\nGZ\r\n--B--\r\n";
+--B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"2026-10-26T12:00:00Z.slp.xz\"\r\nContent-Type: application/x-xz\r\n\r\nXZ\r\n--B--\r\n";
         assert_eq!(String::from_utf8(body).unwrap(), expected);
     }
 
     #[test]
     fn multipart_leaves_out_missing_fields() {
-        let body = String::from_utf8(multipart_body("B", "abc", None, Some(""), None, "x.slp.gz", b"GZ")).unwrap();
+        let body = String::from_utf8(multipart_body("B", "abc", None, Some(""), None, "x.slp.xz", b"XZ")).unwrap();
         assert!(!body.contains("startedAt"));
         assert!(!body.contains("matchId"));
         assert!(!body.contains("fileName"));

@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 dolphin-integrations = { path = "../dolphin" }
-flate2 = "1.0"
+lzma-rust2 = { version = "0.24", default-features = false, features = ["std", "encoder", "xz"] }
 serde_json = { workspace = true }
 sha2 = "0.10"
 tracing = { workspace = true }
