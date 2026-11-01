@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::thread;
@@ -7,6 +7,7 @@ use std::time::Duration;
 use dolphin_integrations::Log;
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use lzma_rust2::{XzOptions, XzWriter};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use ureq::{Agent, AgentBuilder};
@@ -251,6 +252,55 @@ fn gzip(data: &[u8]) -> std::io::Result<Vec<u8>> {
     encoder.finish()
 }
 
+// Reads the replay in chunks, hashing the raw bytes, and stops once the
+// compressed output passes `max_bytes`, so memory stays near the output limit.
+#[allow(dead_code)]
+fn xz_stream(mut reader: impl Read, preset: u32, max_bytes: usize) -> std::io::Result<(String, Vec<u8>)> {
+    let mut hasher = Sha256::new();
+    let mut encoder = XzWriter::new(
+        CappedVec {
+            data: Vec::new(),
+            max_bytes,
+        },
+        XzOptions::with_preset(preset),
+    )?;
+    let mut chunk = vec![0u8; 64 * 1024];
+    loop {
+        let read = match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        hasher.update(&chunk[..read]);
+        encoder.write_all(&chunk[..read])?;
+    }
+    let sha = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok((sha, encoder.finish()?.data))
+}
+
+struct CappedVec {
+    data: Vec<u8>,
+    max_bytes: usize,
+}
+
+impl Write for CappedVec {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.data.len() + buf.len() > self.max_bytes {
+            return Err(std::io::Error::new(
+                ErrorKind::FileTooLarge,
+                "compressed replay over the size limit",
+            ));
+        }
+        self.data.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn gz_file_name(started_at: Option<&str>, sha: &str) -> String {
     match started_at {
         Some(started_at) if !started_at.is_empty() => format!("{started_at}.slp.gz"),
@@ -317,6 +367,24 @@ mod tests {
         let mut out = String::new();
         flate2::read::GzDecoder::new(&gz[..]).read_to_string(&mut out).unwrap();
         assert_eq!(out, "replay bytes");
+    }
+
+    #[test]
+    fn xz_round_trips_and_hashes_the_raw_bytes() {
+        let raw: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let (sha, xz) = xz_stream(&raw[..], 6, 20_000_000).unwrap();
+        assert_eq!(sha, sha256_hex(&raw));
+        assert!(xz.len() < raw.len() / 10);
+        let mut out = Vec::new();
+        lzma_rust2::XzReader::new(&xz[..], false).read_to_end(&mut out).unwrap();
+        assert_eq!(out, raw);
+    }
+
+    #[test]
+    fn xz_stops_at_the_size_limit() {
+        let raw: Vec<u8> = (0..200_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+        let error = xz_stream(&raw[..], 6, 1_000).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::FileTooLarge);
     }
 
     #[test]
