@@ -101,6 +101,80 @@ typedef bool (*SlippiReadDiscFileFn)(void *ctx,
                                      uintptr_t *out_len);
 
 /**
+ * Settings for a game, passed when it starts.
+ */
+typedef struct SlippiInputSuggestionsGameConfig {
+  bool enabled;
+  uint8_t local_player_idx;
+  uint8_t remote_player_count;
+  uint8_t delay;
+  uint8_t source_port;
+  bool source_is_adapter;
+} SlippiInputSuggestionsGameConfig;
+
+/**
+ * A suggestion the caller should send to the opponents. Ignore it unless `is_valid` is set.
+ */
+typedef struct SlippiInputSuggestion {
+  bool is_valid;
+  int32_t target_frame;
+  uint32_t seq;
+  uint8_t pad[8];
+} SlippiInputSuggestion;
+
+/**
+ * What happened on a local frame: how many times the game has polled the controller port and what it sent.
+ */
+typedef struct SlippiInputSuggestionsLocalFrame {
+  int32_t frame;
+  bool is_skip;
+  bool is_advancing;
+  bool has_poll;
+  uint64_t poll_count;
+  bool has_origin;
+  /**
+   * Stick x/y, c-stick x/y, L, R as reported to the game.
+   */
+  uint8_t origin[6];
+  uint8_t analog_mode;
+  uint8_t sent_pad[8];
+} SlippiInputSuggestionsLocalFrame;
+
+/**
+ * Settings for a game, passed when it starts.
+ */
+typedef struct SlippiMatchQualityGameConfig {
+  /**
+   * Whether the match may be terminated (ranked). Other modes are tracked and logged only.
+   */
+  bool can_terminate;
+  /**
+   * The local player's delay frames.
+   */
+  uint8_t delay;
+} SlippiMatchQualityGameConfig;
+
+/**
+ * One pass through the online frame handler.
+ */
+typedef struct SlippiMatchQualityFrame {
+  int32_t frame;
+  uint64_t time_us;
+  /**
+   * The frame is halted because the opponent's inputs are past the rollback limit.
+   */
+  bool is_stall;
+  /**
+   * The newest frame we have the opponent's input for.
+   */
+  int32_t latest_remote_frame;
+  /**
+   * The opponent's most recent ping measurement, or 0 if there hasn't been one yet.
+   */
+  uint64_t ping_us;
+} SlippiMatchQualityFrame;
+
+/**
  * What one STUN server reported for the netplay socket. Filled in by
  * `slprs_stun_parse_response`; leave it zeroed for a server that did not
  * answer.
@@ -342,6 +416,62 @@ struct SlippiResolvedGameFile slprs_gamefile_resolve(const char *file_name,
 void slprs_gamefile_free(struct SlippiResolvedGameFile result);
 
 /**
+ * Starts tracking a game. Call on the CPU thread when the game's first online frame is handled.
+ */
+void slprs_input_suggestions_start_game(struct SlippiInputSuggestionsGameConfig config);
+
+/**
+ * Stops tracking the current game, if any.
+ */
+void slprs_input_suggestions_end_game(void);
+
+/**
+ * Reports a local frame. Call on the CPU thread right after the frame's input was sent and Slippi decided
+ * whether to advance. Send the returned suggestion if it is valid.
+ */
+struct SlippiInputSuggestion slprs_input_suggestions_on_local_frame(struct SlippiInputSuggestionsLocalFrame frame);
+
+/**
+ * Reports an adapter input report. Call on the adapter read thread. `game_poll_counts` points at four
+ * counts, one per port. Send the returned suggestion if it is valid.
+ */
+struct SlippiInputSuggestion slprs_input_suggestions_on_adapter_report(const uint64_t *game_poll_counts,
+                                                                       const uint8_t *payload,
+                                                                       uintptr_t payload_len);
+
+/**
+ * Reports a suggestion received from a remote player. `pad` points at 8 bytes. Call on the netplay thread.
+ */
+void slprs_input_suggestions_on_remote_suggestion(uint8_t remote_idx,
+                                                  int32_t target_frame,
+                                                  uint32_t seq,
+                                                  const uint8_t *pad);
+
+/**
+ * Reports a real input received from a remote player. `pad` points at 8 bytes. Call on the netplay thread.
+ */
+void slprs_input_suggestions_on_remote_input(uint8_t remote_idx,
+                                             int32_t frame,
+                                             const uint8_t *pad);
+
+/**
+ * Forgets a remote player's suggestions and inputs, for when they start a new game.
+ */
+void slprs_input_suggestions_reset_remote(uint8_t remote_idx);
+
+/**
+ * Writes the input the ASM should use for each of the 7 frames after `latest_frame` into `out`
+ * (7 pad reports of 12 bytes). `latest_pad` points at the 12-byte latest received input, which every
+ * slot holds unless a suggestion applies. Call on the CPU thread.
+ */
+void slprs_input_suggestions_fill_predictions(uint8_t remote_idx,
+                                              int32_t latest_frame,
+                                              bool is_disconnected,
+                                              const uint8_t *latest_pad,
+                                              uint8_t *out,
+                                              uintptr_t out_len);
+
+/**
  * Calls through to `Jukebox::start_song`.
  */
 void slprs_jukebox_start_song(uintptr_t exi_device_instance_ptr,
@@ -423,6 +553,22 @@ char *slprs_lylat_mm_host(void);
 uint16_t slprs_lylat_mm_port(void);
 
 void slprs_lylat_free_string(char *value);
+
+/**
+ * Starts tracking a game. Call when the game's first online frame is handled.
+ */
+void slprs_match_quality_start_game(struct SlippiMatchQualityGameConfig config);
+
+/**
+ * Stops tracking the current game, if any.
+ */
+void slprs_match_quality_end_game(void);
+
+/**
+ * Reports a pass through the online frame handler, halted or not. Returns true once, when the match should be
+ * terminated for poor quality.
+ */
+bool slprs_match_quality_on_frame(struct SlippiMatchQualityFrame frame);
 
 /**
  * Starts a matchmaking session and returns its id. Any session already
